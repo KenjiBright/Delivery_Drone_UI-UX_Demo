@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d1117">
+  <title>UAV Operations Console</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/console.css">
+</head>
+<body>
+
+<!-- ============ Đăng nhập ============ -->
+<section id="view-login" class="login">
+  <form class="login__card" id="login-form" novalidate>
+    <div class="login__brand">
+      <div class="login__logo"><svg class="icon" width="26" height="26"><use href="#i-drone"/></svg></div>
+      <h1>UAV Operations</h1>
+      <p>Trung tâm điều phối và giám sát đội bay</p>
+    </div>
+    <label class="field">
+      <span class="field__label">Tên đăng nhập</span>
+      <input class="input" id="login-username" value="operator" autocomplete="username" required>
+    </label>
+    <label class="field">
+      <span class="field__label">Mật khẩu</span>
+      <input class="input" id="login-password" type="password" value="dieuphoi123" autocomplete="current-password" required>
+    </label>
+    <p class="field__error hidden" id="login-error" role="alert"></p>
+    <button class="btn btn--block" id="login-submit" type="submit">Đăng nhập điều phối</button>
+    <p class="login__hint">Tài khoản demo: <strong>operator</strong> / <strong>dieuphoi123</strong></p>
+  </form>
+</section>
+
+<!-- ============ Console ============ -->
+<div id="app" class="shell hidden">
+
+  <!-- ---- Thanh bên ---- -->
+  <aside class="sidebar">
+    <div class="sidebar__brand">
+      <span class="sidebar__logo"><svg class="icon" width="20" height="20"><use href="#i-drone"/></svg></span>
+      <span class="sidebar__title">UAV Ops</span>
+    </div>
+    <nav class="sidebar__nav" aria-label="Khu vực quản trị">
+      <button class="navitem is-active" data-view="dashboard"><svg class="icon" width="19" height="19"><use href="#i-dashboard"/></svg><span>Tổng quan</span></button>
+      <button class="navitem" data-view="orders"><svg class="icon" width="19" height="19"><use href="#i-receipt"/></svg><span>Đơn hàng</span><span class="navitem__badge hidden" id="nav-pending-badge">0</span></button>
+      <button class="navitem" data-view="fleet"><svg class="icon" width="19" height="19"><use href="#i-drone"/></svg><span>Đội UAV</span></button>
+      <button class="navitem" data-view="analytics"><svg class="icon" width="19" height="19"><use href="#i-chart"/></svg><span>Thống kê</span></button>
+      <button class="navitem" data-view="catalog"><svg class="icon" width="19" height="19"><use href="#i-package"/></svg><span>Sản phẩm</span></button>
+      <button class="navitem" data-view="customers"><svg class="icon" width="19" height="19"><use href="#i-users"/></svg><span>Khách hàng</span></button>
+      <button class="navitem" data-view="settings"><svg class="icon" width="19" height="19"><use href="#i-settings"/></svg><span>Cấu hình</span></button>
+    </nav>
+    <button class="navitem navitem--danger" id="btn-logout"><svg class="icon" width="19" height="19"><use href="#i-logout"/></svg><span>Đăng xuất</span></button>
+  </aside>
+
+  <!-- ---- Nội dung ---- -->
+  <div class="main">
+    <header class="topbar">
+      <button class="btn btn--icon sidebar-toggle" id="btn-menu" aria-label="Mở menu">
+        <svg class="icon" width="20" height="20"><use href="#i-dashboard"/></svg>
+      </button>
+      <h1 id="view-title">Tổng quan</h1>
+      <div class="topbar__spacer"></div>
+      <span class="conn" id="conn-status"><span class="conn__dot"></span><span id="conn-text">Đang kết nối</span></span>
+      <button class="btn btn--icon" id="btn-refresh" aria-label="Làm mới dữ liệu"><svg class="icon" width="19" height="19"><use href="#i-refresh"/></svg></button>
+      <span class="topbar__user" id="topbar-user">—</span>
+    </header>
+
+    <div class="alerts" id="alerts"></div>
+
+    <div class="views">
+      <section class="view" id="view-dashboard"></section>
+      <section class="view hidden" id="view-orders"></section>
+      <section class="view hidden" id="view-fleet"></section>
+      <section class="view hidden" id="view-analytics"></section>
+      <section class="view hidden" id="view-catalog"></section>
+      <section class="view hidden" id="view-customers"></section>
+      <section class="view hidden" id="view-settings"></section>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="/static/js/console/main.js"></script>
+</body>
+</html>

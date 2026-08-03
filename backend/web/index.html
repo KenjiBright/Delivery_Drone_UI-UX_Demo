@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <title>UAV Delivery — Giao hàng bằng drone</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="/static/css/base.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+<!-- ============ Đăng nhập ============ -->
+<section id="view-login" class="login">
+  <div class="login__brand">
+    <div class="login__logo"><svg class="icon" width="30" height="30"><use href="#i-drone"/></svg></div>
+    <h1>UAV Delivery</h1>
+    <p>Giao hàng bằng drone, theo dõi thời gian thực</p>
+  </div>
+  <form class="login__card" id="login-form" novalidate>
+    <label class="field">
+      <span class="field__label">Tên đăng nhập</span>
+      <input class="input" id="login-username" value="customer" autocomplete="username" required>
+    </label>
+    <label class="field">
+      <span class="field__label">Mật khẩu</span>
+      <input class="input" id="login-password" type="password" value="khachhang123" autocomplete="current-password" required>
+    </label>
+    <p class="field__error hidden" id="login-error" role="alert"></p>
+    <button class="btn btn--block" id="login-submit" type="submit">Đăng nhập</button>
+    <p class="login__hint">Tài khoản demo: <strong>customer</strong> / <strong>khachhang123</strong></p>
+  </form>
+</section>
+
+<!-- ============ Ứng dụng ============ -->
+<main id="app" class="hidden">
+
+  <!-- ---- Trang chủ ---- -->
+  <section class="screen" id="screen-home">
+    <header class="hero">
+      <div class="hero__row">
+        <div>
+          <p class="hero__greeting">Xin chào,</p>
+          <h2 class="hero__name" id="hero-name">Khách hàng</h2>
+        </div>
+        <button class="hero__icon-btn" id="btn-notifications" aria-label="Thông báo">
+          <svg class="icon" width="20" height="20"><use href="#i-bell"/></svg>
+        </button>
+      </div>
+      <div class="search">
+        <svg class="icon" width="18" height="18"><use href="#i-search"/></svg>
+        <input class="search__input" id="product-search" type="search" placeholder="Tìm sản phẩm cần giao" aria-label="Tìm sản phẩm">
+      </div>
+    </header>
+
+    <div class="promo">
+      <div class="promo__text">
+        <strong>Giao siêu tốc bằng drone</strong>
+        <p>Tải trọng tối đa <span id="promo-payload">2.5</span> kg — trung bình 5 phút mỗi chuyến</p>
+      </div>
+      <svg class="icon promo__art" width="64" height="64"><use href="#i-drone"/></svg>
+    </div>
+
+    <nav class="chips" id="category-chips" aria-label="Danh mục sản phẩm"></nav>
+
+    <div class="section-head">
+      <h3>Sản phẩm</h3>
+      <span class="section-head__count" id="product-count"></span>
+    </div>
+    <div id="product-list" class="stack"></div>
+  </section>
+
+  <!-- ---- Giỏ hàng ---- -->
+  <section class="screen hidden" id="screen-cart">
+    <header class="topbar"><h2>Giỏ hàng</h2></header>
+    <div id="cart-items" class="stack"></div>
+
+    <div id="cart-checkout" class="hidden">
+      <div class="section-head"><h3>Điểm giao hàng</h3></div>
+      <div class="card address-picker">
+        <button class="address-picker__current" id="btn-pick-address">
+          <svg class="icon" width="20" height="20"><use href="#i-map-pin"/></svg>
+          <span class="address-picker__text">
+            <strong id="selected-address-label">Chọn điểm giao</strong>
+            <small id="selected-address-detail">Chạm để chọn trên bản đồ hoặc tìm địa chỉ</small>
+          </span>
+          <svg class="icon" width="18" height="18"><use href="#i-chevron-right"/></svg>
+        </button>
+        <div class="address-picker__saved" id="saved-address-chips"></div>
+      </div>
+
+      <label class="field">
+        <span class="field__label">Ghi chú cho điều phối (không bắt buộc)</span>
+        <input class="input" id="order-note" maxlength="250" placeholder="Ví dụ: giao ở sân thượng toà B">
+      </label>
+
+      <div class="card summary">
+        <div class="summary__row"><span>Số sản phẩm</span><span class="tnum" id="sum-count">0</span></div>
+        <div class="summary__row"><span>Tổng khối lượng</span><span class="tnum" id="sum-weight">0.00 kg</span></div>
+        <div class="summary__row"><span>Phí giao drone</span><span class="summary__free">Miễn phí</span></div>
+        <div class="summary__row summary__row--total"><span>Tổng thanh toán</span><span class="tnum" id="sum-price">0 đ</span></div>
+        <p class="summary__warn hidden" id="weight-warning" role="alert"></p>
+      </div>
+
+      <button class="btn btn--block" id="btn-place-order">Đặt giao hàng bằng UAV</button>
+    </div>
+  </section>
+
+  <!-- ---- Đơn hàng ---- -->
+  <section class="screen hidden" id="screen-orders">
+    <header class="topbar"><h2>Đơn hàng</h2></header>
+    <div class="segmented" role="tablist">
+      <button role="tab" class="segmented__item is-active" data-scope="active">Đang giao</button>
+      <button role="tab" class="segmented__item" data-scope="history">Lịch sử</button>
+    </div>
+    <div id="order-list" class="stack"></div>
+  </section>
+
+  <!-- ---- Tài khoản ---- -->
+  <section class="screen hidden" id="screen-profile">
+    <header class="topbar"><h2>Tài khoản</h2></header>
+    <div class="card profile">
+      <div class="profile__avatar"><svg class="icon" width="26" height="26"><use href="#i-user"/></svg></div>
+      <div>
+        <strong id="profile-name">—</strong>
+        <p class="text-muted" id="profile-phone">—</p>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <h3>Sổ địa chỉ</h3>
+      <button class="btn btn--ghost btn--sm" id="btn-add-address">
+        <svg class="icon" width="16" height="16"><use href="#i-plus"/></svg>Thêm
+      </button>
+    </div>
+    <div id="address-list" class="stack"></div>
+
+    <button class="btn btn--secondary btn--block" id="btn-logout" style="margin-top:var(--sp-6)">
+      <svg class="icon" width="18" height="18"><use href="#i-logout"/></svg>Đăng xuất
+    </button>
+  </section>
+
+  <!-- ---- Theo dõi đơn (toàn màn hình) ---- -->
+  <section class="screen screen--full hidden" id="screen-track">
+    <header class="topbar topbar--back">
+      <button class="btn btn--icon" id="btn-track-back" aria-label="Quay lại">
+        <svg class="icon" width="20" height="20"><use href="#i-arrow-left"/></svg>
+      </button>
+      <h2 id="track-title">Theo dõi đơn</h2>
+    </header>
+
+    <div class="track-steps" id="track-steps" aria-label="Tiến trình giao hàng"></div>
+
+    <div class="map track-map" id="track-map"></div>
+
+    <div class="card eta" id="eta-card">
+      <div class="eta__main">
+        <svg class="icon" width="22" height="22"><use href="#i-clock"/></svg>
+        <div>
+          <small>Dự kiến tới nơi</small>
+          <strong class="tnum" id="eta-value">—</strong>
+        </div>
+      </div>
+      <div id="track-status-badge"></div>
+    </div>
+
+    <div class="card uav-card hidden" id="uav-card">
+      <div class="uav-card__head">
+        <div class="uav-card__avatar"><svg class="icon" width="22" height="22"><use href="#i-drone"/></svg></div>
+        <div class="uav-card__id">
+          <strong id="uav-id">—</strong>
+          <small id="uav-model">—</small>
+        </div>
+        <div id="uav-status-badge"></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><svg class="icon" width="16" height="16"><use href="#i-battery"/></svg><div><small>Pin</small><strong class="tnum" id="uav-battery">—</strong></div></div>
+        <div class="metric"><svg class="icon" width="16" height="16"><use href="#i-altitude"/></svg><div><small>Độ cao</small><strong class="tnum" id="uav-altitude">—</strong></div></div>
+        <div class="metric"><svg class="icon" width="16" height="16"><use href="#i-gauge"/></svg><div><small>Tốc độ</small><strong class="tnum" id="uav-speed">—</strong></div></div>
+      </div>
+    </div>
+
+    <div class="card pin-card hidden" id="pin-card">
+      <strong>UAV đã đến điểm giao</strong>
+      <p class="text-muted">Nhập mã PIN trong đơn để xác nhận đã nhận hàng.</p>
+      <div class="pin-row">
+        <input class="input tnum" id="pin-input" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Mã PIN nhận hàng">
+        <button class="btn" id="btn-verify">Xác nhận</button>
+      </div>
+    </div>
+
+    <div class="card rate-card hidden" id="rate-card">
+      <strong>Đánh giá chuyến giao</strong>
+      <div class="stars" id="rate-stars" role="radiogroup" aria-label="Chấm sao"></div>
+      <textarea class="input" id="rate-review" rows="2" placeholder="Nhận xét thêm (không bắt buộc)"></textarea>
+      <button class="btn btn--block" id="btn-rate">Gửi đánh giá</button>
+    </div>
+
+    <div class="card" id="track-detail"></div>
+  </section>
+
+  <!-- ---- Đơn đang giao nổi trên trang chủ ---- -->
+  <button class="live-order hidden" id="live-order">
+    <span class="live-order__pulse"></span>
+    <span class="live-order__text">
+      <strong id="live-order-status">Đang giao</strong>
+      <small id="live-order-id">—</small>
+    </span>
+    <svg class="icon" width="18" height="18"><use href="#i-chevron-right"/></svg>
+  </button>
+
+  <!-- ---- Điều hướng dưới ---- -->
+  <nav class="tabbar" id="tabbar" aria-label="Điều hướng chính">
+    <button class="tabbar__item is-active" data-screen="home">
+      <svg class="icon" width="22" height="22"><use href="#i-home"/></svg><span>Trang chủ</span>
+    </button>
+    <button class="tabbar__item" data-screen="cart">
+      <span class="tabbar__icon-wrap">
+        <svg class="icon" width="22" height="22"><use href="#i-bag"/></svg>
+        <span class="tabbar__badge hidden" id="cart-badge">0</span>
+      </span><span>Giỏ hàng</span>
+    </button>
+    <button class="tabbar__item" data-screen="orders">
+      <svg class="icon" width="22" height="22"><use href="#i-receipt"/></svg><span>Đơn hàng</span>
+    </button>
+    <button class="tabbar__item" data-screen="profile">
+      <svg class="icon" width="22" height="22"><use href="#i-user"/></svg><span>Tài khoản</span>
+    </button>
+  </nav>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="/static/js/customer/main.js"></script>
+</body>
+</html>
