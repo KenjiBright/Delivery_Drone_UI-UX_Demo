@@ -18,7 +18,7 @@ from ..security import require_role
 
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_role("operator"))])
 
-OPEN_STATUSES = ("PENDING", "CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "DELIVERED", "RETURNING")
+OPEN_STATUSES = ("PENDING", "CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "UNLOCKED", "DELIVERED", "RETURNING")
 SORT_COLUMNS = {"created_at": "created_at", "updated_at": "updated_at", "total_price": "total_price", "status": "status"}
 
 
@@ -171,6 +171,38 @@ async def dispatch_order(order_id: str, user: dict[str, str] = Depends(require_r
   return order
 
 
+@router.post("/orders/{order_id}/recall")
+async def recall_uav(order_id: str, user: dict[str, str] = Depends(require_role("operator"))) -> dict[str, Any]:
+  """Cho phép UAV rời điểm giao và bay về kho.
+
+  UAV đậu tại chỗ sau khi khách đóng thùng, chờ đúng lệnh này. Người điều phối giữ
+  quyền quyết định vì họ mới là người nhìn được toàn cảnh đội bay.
+  """
+  async with DB_LOCK:
+    with connect() as conn:
+      row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+      if not row:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+      if row["status"] != "DELIVERED":
+        raise HTTPException(status_code=400, detail="Chỉ gọi về được khi khách đã đóng thùng")
+      if row["return_released_at"]:
+        raise HTTPException(status_code=400, detail="Đã ra lệnh quay về rồi")
+      now = utc_now()
+      conn.execute(
+        "UPDATE orders SET return_released_at = ?, return_released_by = ?, updated_at = ? WHERE id = ?",
+        (now, user["username"], now, order_id),
+      )
+      # Ghi là RETURNING chứ không phải DELIVERED: đây là mốc bắt đầu chặng bay về,
+      # và nhờ vậy nó nằm trong nhóm sự kiện nội bộ được ẩn khỏi nhật ký của khách —
+      # nếu không khách sẽ thấy "Đã nhận hàng" hai lần liên tiếp.
+      log_event(conn, order_id, "RETURNING", user["username"], "Điều phối cho UAV quay về")
+      conn.commit()
+      order = row_to_order(conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone())
+
+  await manager.broadcast({"type": "order_updated", "order": order}, order["customer_username"])
+  return order
+
+
 @router.post("/orders/{order_id}/cancel")
 async def cancel_order(
   order_id: str,
@@ -269,7 +301,7 @@ def stats(days: int = Query(default=14, ge=1, le=90)) -> dict[str, Any]:
     "totals": {
       "orders": len(orders),
       "pending": status_counts.get("PENDING", 0),
-      "active": sum(status_counts.get(status, 0) for status in ("CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "DELIVERED", "RETURNING")),
+      "active": sum(status_counts.get(status, 0) for status in ("CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "UNLOCKED", "DELIVERED", "RETURNING")),
       "completed": status_counts.get("COMPLETED", 0),
       "cancelled": status_counts.get("CANCELLED", 0),
       "revenue": sum(row["total_price"] for row in completed),
@@ -277,6 +309,11 @@ def stats(days: int = Query(default=14, ge=1, le=90)) -> dict[str, Any]:
       "avg_rating": round(sum(ratings) / len(ratings), 2) if ratings else None,
       "rating_count": len(ratings),
     },
+    # UAV đã giao xong nhưng còn nằm ngoài hiện trường vì chưa ai ra lệnh quay về.
+    "awaiting_recall": [
+      {"order_id": row["id"], "uav": row["assigned_uav"], "since": row["box_closed_at"] or row["updated_at"]}
+      for row in orders if row["status"] == "DELIVERED" and not row["return_released_at"]
+    ],
     "status_breakdown": [{"status": status, "count": count} for status, count in status_counts.most_common()],
     "timeline": [
       {"date": key, "orders": per_day.get(key, 0), "revenue": revenue_per_day.get(key, 0)}

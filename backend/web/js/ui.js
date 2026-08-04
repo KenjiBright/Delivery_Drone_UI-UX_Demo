@@ -56,6 +56,7 @@ const STATUS = {
   DISPATCHED: { label: 'Chuẩn bị bay', tone: 'progress', icon: 'navigation' },
   IN_FLIGHT:  { label: 'Đang giao',    tone: 'progress', icon: 'route' },
   ARRIVED:    { label: 'Đã đến nơi',   tone: 'progress', icon: 'map-pin' },
+  UNLOCKED:   { label: 'Đang lấy hàng', tone: 'progress', icon: 'package' },
   DELIVERED:  { label: 'Đã giao',      tone: 'success',  icon: 'check-circle' },
   RETURNING:  { label: 'UAV quay về',  tone: 'progress', icon: 'refresh' },
   COMPLETED:  { label: 'Hoàn thành',   tone: 'success',  icon: 'check-circle' },
@@ -75,7 +76,8 @@ const UAV_STATUS = {
   AVAILABLE: { label: 'Sẵn sàng', tone: 'success' },
   RESERVED: { label: 'Đã giữ chỗ', tone: 'pending' },
   DELIVERING: { label: 'Đang giao', tone: 'progress' },
-  WAITING_CONFIRMATION: { label: 'Chờ xác nhận', tone: 'pending' },
+  WAITING_CONFIRMATION: { label: 'Chờ khách nhận', tone: 'pending' },
+  AWAITING_RECALL: { label: 'Chờ lệnh quay về', tone: 'pending' },
   RETURNING: { label: 'Đang về', tone: 'progress' },
   MAINTENANCE: { label: 'Bảo trì', tone: 'danger' },
   OFFLINE: { label: 'Ngoại tuyến', tone: '' },
@@ -101,18 +103,34 @@ export function ratingStars(value, { size = 14 } = {}) {
 }
 
 // Các mốc hiển thị trên thanh tiến trình giao hàng.
+// Với khách, hành trình kết thúc khi đã lấy hàng. Chặng UAV bay về kho là việc của
+// điều phối, khách không cần theo dõi và cũng không tác động được gì.
 export const TRACK_STEPS = [
   { key: 'PENDING', label: 'Đặt đơn', icon: 'receipt' },
   { key: 'CONFIRMED', label: 'Xác nhận', icon: 'check' },
   { key: 'DISPATCHED', label: 'Cất cánh', icon: 'drone' },
   { key: 'ARRIVED', label: 'Đến nơi', icon: 'map-pin' },
-  { key: 'COMPLETED', label: 'Hoàn tất', icon: 'check-circle' },
+  { key: 'DELIVERED', label: 'Nhận hàng', icon: 'check-circle' },
 ];
 
 const STEP_INDEX = {
   PENDING: 0, CONFIRMED: 1, ASSIGNED: 1, DISPATCHED: 2, IN_FLIGHT: 2,
-  ARRIVED: 3, DELIVERED: 3, RETURNING: 4, COMPLETED: 4,
+  ARRIVED: 3, UNLOCKED: 3, DELIVERED: 4, RETURNING: 4, COMPLETED: 4,
 };
+
+/** Nhãn trạng thái nhìn từ phía khách hàng. */
+export function customerStatusLabel(status) {
+  if (CUSTOMER_DONE.has(status)) return 'Đã nhận hàng';
+  return statusLabel(status);
+}
+
+export function customerStatusBadge(status) {
+  if (!CUSTOMER_DONE.has(status)) return statusBadge(status);
+  return `<span class="badge badge--success">${icon('check-circle', { size: 13 })}Đã nhận hàng</span>`;
+}
+
+// Ba trạng thái này với khách đều là "xong": khác nhau ở chỗ UAV đang ở đâu.
+export const CUSTOMER_DONE = new Set(['DELIVERED', 'RETURNING', 'COMPLETED']);
 
 export function stepIndex(status) {
   return STEP_INDEX[status] ?? 0;

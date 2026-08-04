@@ -7,14 +7,15 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..db import DB_LOCK, connect, get_settings, log_event, new_order_id, row_to_order, utc_now
+from ..db import CUSTOMER_DONE, DB_LOCK, connect, get_settings, log_event, new_order_id, row_to_order, utc_now
 from ..models import AddressRequest, CreateOrderRequest, RateRequest, VerifyRequest
 from ..realtime import manager
 from ..security import current_user, require_role
 
 router = APIRouter(prefix="/api", tags=["orders"])
 
-ACTIVE_STATUSES = ("PENDING", "CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "DELIVERED", "RETURNING")
+# Với khách, đơn còn "đang giao" cho tới lúc đóng thùng. Chặng UAV bay về không hiện ra.
+ACTIVE_STATUSES = ("PENDING", "CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "UNLOCKED")
 
 
 @router.post("/orders")
@@ -94,7 +95,7 @@ def my_orders(
     sql += f" AND status IN ({','.join('?' for _ in ACTIVE_STATUSES)})"
     params += list(ACTIVE_STATUSES)
   elif scope == "history":
-    sql += " AND status IN ('COMPLETED', 'CANCELLED')"
+    sql += " AND status IN ('DELIVERED', 'RETURNING', 'COMPLETED', 'CANCELLED')"
   sql += " ORDER BY created_at DESC"
   with connect() as conn:
     rows = conn.execute(sql, params).fetchall()
@@ -118,22 +119,55 @@ def get_order(order_id: str, user: dict[str, str] = Depends(current_user)) -> di
 
 
 @router.post("/orders/{order_id}/verify")
-async def verify_delivery(
+async def unlock_box(
   order_id: str,
   request: VerifyRequest,
   user: dict[str, str] = Depends(require_role("customer")),
 ) -> dict[str, Any]:
+  """Nhập đúng mã PIN thì thùng hàng mở ra. UAV vẫn đậu tại chỗ."""
   async with DB_LOCK:
     with connect() as conn:
       row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
       if not row or row["customer_username"] != user["username"]:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+      if row["status"] == "UNLOCKED":
+        raise HTTPException(status_code=400, detail="Thùng hàng đang mở")
       if row["status"] != "ARRIVED":
         raise HTTPException(status_code=400, detail="UAV chưa đến điểm giao")
       if request.code.strip() != row["verification_code"]:
         raise HTTPException(status_code=400, detail="Mã PIN không đúng")
-      conn.execute("UPDATE orders SET status = 'DELIVERED', updated_at = ? WHERE id = ?", (utc_now(), order_id))
-      log_event(conn, order_id, "DELIVERED", user["username"], "Khách xác nhận đã nhận hàng")
+      now = utc_now()
+      conn.execute(
+        "UPDATE orders SET status = 'UNLOCKED', box_opened_at = ?, updated_at = ? WHERE id = ?",
+        (now, now, order_id),
+      )
+      log_event(conn, order_id, "UNLOCKED", user["username"], "Khách nhập PIN, thùng hàng đã mở")
+      conn.commit()
+      order = row_to_order(conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone())
+
+  await manager.broadcast({"type": "order_updated", "order": order}, user["username"])
+  return order
+
+
+@router.post("/orders/{order_id}/close-box")
+async def close_box(
+  order_id: str,
+  user: dict[str, str] = Depends(require_role("customer")),
+) -> dict[str, Any]:
+  """Khách lấy hàng xong và đóng thùng. UAV chuyển sang chờ lệnh quay về từ console."""
+  async with DB_LOCK:
+    with connect() as conn:
+      row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+      if not row or row["customer_username"] != user["username"]:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+      if row["status"] != "UNLOCKED":
+        raise HTTPException(status_code=400, detail="Thùng hàng chưa được mở")
+      now = utc_now()
+      conn.execute(
+        "UPDATE orders SET status = 'DELIVERED', box_closed_at = ?, updated_at = ? WHERE id = ?",
+        (now, now, order_id),
+      )
+      log_event(conn, order_id, "DELIVERED", user["username"], "Khách đã lấy hàng và đóng thùng")
       conn.commit()
       order = row_to_order(conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone())
 
@@ -152,8 +186,10 @@ async def rate_order(
       row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
       if not row or row["customer_username"] != user["username"]:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
-      if row["status"] != "COMPLETED":
-        raise HTTPException(status_code=400, detail="Chỉ đánh giá được đơn đã hoàn thành")
+      # Đánh giá được ngay khi khách đóng thùng. Bắt chờ tới COMPLETED nghĩa là bắt
+      # khách chờ UAV bay về kho và chờ điều phối ra lệnh — việc chẳng liên quan tới họ.
+      if row["status"] not in CUSTOMER_DONE:
+        raise HTTPException(status_code=400, detail="Chỉ đánh giá được sau khi đã nhận hàng")
       conn.execute(
         "UPDATE orders SET rating = ?, review = ?, updated_at = ? WHERE id = ?",
         (request.rating, request.review, utc_now(), order_id),

@@ -21,8 +21,17 @@ DEFAULT_HOME_LAT = float(os.getenv("HOME_LAT", "21.0278"))
 DEFAULT_HOME_LON = float(os.getenv("HOME_LON", "105.8342"))
 
 # Vòng đời đơn hàng, dùng để kiểm tra chuyển trạng thái hợp lệ.
-ORDER_FLOW = ["PENDING", "CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT", "ARRIVED", "DELIVERED", "RETURNING", "COMPLETED"]
+ORDER_FLOW = [
+  "PENDING", "CONFIRMED", "ASSIGNED", "DISPATCHED", "IN_FLIGHT",
+  "ARRIVED",    # UAV đã hạ cánh, thùng còn khoá
+  "UNLOCKED",   # khách nhập PIN, thùng đã mở
+  "DELIVERED",  # khách đã đóng thùng — với khách thì đơn xong ở đây
+  "RETURNING", "COMPLETED",
+]
 ORDER_CLOSED = {"COMPLETED", "CANCELLED"}
+
+# Với khách hàng, đơn kết thúc khi đã đóng thùng. Chặng UAV bay về là việc nội bộ.
+CUSTOMER_DONE = {"DELIVERED", "RETURNING", "COMPLETED"}
 
 
 def utc_now() -> str:
@@ -128,6 +137,19 @@ SEED_USERS = [
   ("operator", "Trần Thị Điều Phối", "operator", "dieuphoi123", "0907654321"),
 ]
 
+# Hồ sơ mẫu, điền cả cho tài khoản đã tạo từ trước để màn Tài khoản không trống trơn.
+SEED_PROFILES = {
+  "customer": {
+    "full_name": "Nguyễn Văn An", "email": "an.nguyen@example.vn",
+    "gender": "male", "date_of_birth": "1996-04-12",
+  },
+  "operator": {
+    "full_name": "Trần Thị Điều Phối", "email": "dieuphoi@example.vn",
+    "gender": "female", "employee_code": "DP-001",
+    "job_title": "Điều phối viên", "department": "Trung tâm điều hành bay",
+  },
+}
+
 SEED_PRODUCTS = [
   ("MED001", "Hộp sơ cứu", "Bộ sơ cứu nhỏ gọn, băng gạc và sát trùng", 250_000, 0.80, "medkit", "Y tế"),
   ("MED002", "Thuốc kê đơn", "Túi thuốc niêm phong từ nhà thuốc", 180_000, 0.30, "pill", "Y tế"),
@@ -153,15 +175,58 @@ DEFAULT_SETTINGS = {
 }
 
 
+# Cột thêm sau khi đã có người dùng chạy demo. `CREATE TABLE IF NOT EXISTS` không đụng
+# tới bảng cũ, nên phải tự thêm cột chứ không thể sửa SCHEMA rồi thôi.
+MIGRATIONS: dict[str, dict[str, str]] = {
+  "users": {
+    "full_name": "TEXT NOT NULL DEFAULT ''",
+    "email": "TEXT NOT NULL DEFAULT ''",
+    "gender": "TEXT NOT NULL DEFAULT ''",
+    "date_of_birth": "TEXT NOT NULL DEFAULT ''",
+    "employee_code": "TEXT NOT NULL DEFAULT ''",
+    "job_title": "TEXT NOT NULL DEFAULT ''",
+    "department": "TEXT NOT NULL DEFAULT ''",
+    "duty_status": "TEXT NOT NULL DEFAULT 'ON_DUTY'",
+    "default_note": "TEXT NOT NULL DEFAULT ''",
+    "default_address_id": "INTEGER",
+    "notify_orders": "INTEGER NOT NULL DEFAULT 1",
+    "updated_at": "TEXT NOT NULL DEFAULT ''",
+  },
+  "orders": {
+    "box_opened_at": "TEXT",
+    "box_closed_at": "TEXT",
+    "return_released_at": "TEXT",
+    "return_released_by": "TEXT",
+  },
+}
+
+
+def apply_migrations(conn: sqlite3.Connection) -> None:
+  for table, columns in MIGRATIONS.items():
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, declaration in columns.items():
+      if name not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+
+
 def init_db() -> None:
   with connect() as conn:
     conn.executescript(SCHEMA)
+    apply_migrations(conn)
     now = utc_now()
 
     for username, display_name, role, password, phone in SEED_USERS:
       conn.execute(
         "INSERT OR IGNORE INTO users (username, display_name, role, password_hash, phone, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (username, display_name, role, make_password(password), phone, now),
+      )
+
+    # Chỉ điền khi hồ sơ còn trống, để không đè lên thông tin người dùng đã tự sửa.
+    for username, profile in SEED_PROFILES.items():
+      assignments = ", ".join(f"{key} = ?" for key in profile)
+      conn.execute(
+        f"UPDATE users SET {assignments} WHERE username = ? AND full_name = ''",
+        list(profile.values()) + [username],
       )
 
     for product_id, name, description, price, weight, icon, category in SEED_PRODUCTS:

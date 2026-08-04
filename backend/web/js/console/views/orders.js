@@ -11,7 +11,7 @@ import { homePoint, loadOrders, loadUavs, selectedOrder, setFilter, state, uavBy
 const STATUS_OPTIONS = [
   ['', 'Tất cả trạng thái'], ['PENDING', 'Chờ xác nhận'], ['CONFIRMED', 'Đã xác nhận'],
   ['ASSIGNED', 'Đã gán UAV'], ['DISPATCHED', 'Chuẩn bị bay'], ['IN_FLIGHT', 'Đang giao'],
-  ['ARRIVED', 'Đã đến nơi'], ['DELIVERED', 'Đã giao'], ['RETURNING', 'UAV quay về'],
+  ['ARRIVED', 'Đã đến nơi'], ['UNLOCKED', 'Đang lấy hàng'], ['DELIVERED', 'Đã giao'], ['RETURNING', 'UAV quay về'],
   ['COMPLETED', 'Hoàn thành'], ['CANCELLED', 'Đã huỷ'],
 ];
 
@@ -20,6 +20,8 @@ const NEXT_ACTION = {
   PENDING: { path: 'confirm', label: 'Xác nhận đơn', glyph: 'check' },
   CONFIRMED: { path: 'assign', label: 'Gán UAV tự động', glyph: 'drone' },
   ASSIGNED: { path: 'dispatch', label: 'Cho phép xuất phát', glyph: 'navigation' },
+  // Khách đã đóng thùng, UAV đậu tại điểm giao chờ đúng lệnh này.
+  DELIVERED: { path: 'recall', label: 'Cho UAV quay về', glyph: 'refresh' },
 };
 
 const CANCELLABLE = new Set(['PENDING', 'CONFIRMED', 'ASSIGNED']);
@@ -182,7 +184,8 @@ function renderDetail(container) {
   }
 
   const uav = order.assigned_uav ? uavById(order.assigned_uav) : null;
-  const next = NEXT_ACTION[order.status];
+  // Đã ra lệnh quay về rồi thì không còn hành động nào, dù đơn vẫn đang ở DELIVERED.
+  const next = order.status === 'DELIVERED' && order.return_released_at ? null : NEXT_ACTION[order.status];
   caption.textContent = `${order.id} · ${statusLabel(order.status)}`;
 
   panel.innerHTML = `
@@ -198,6 +201,9 @@ function renderDetail(container) {
           <div class="detail-row"><dt>Tổng tiền</dt><dd>${formatMoney(order.total_price)}</dd></div>
           <div class="detail-row"><dt>PIN</dt><dd class="tnum">${escapeHtml(order.verification_code)}</dd></div>
           <div class="detail-row"><dt>UAV</dt><dd>${escapeHtml(order.assigned_uav || 'Chưa gán')}</dd></div>
+          ${order.box_opened_at ? `<div class="detail-row"><dt>Mở thùng</dt><dd class="tnum">${formatTime(order.box_opened_at)}</dd></div>` : ''}
+          ${order.box_closed_at ? `<div class="detail-row"><dt>Đóng thùng</dt><dd class="tnum">${formatTime(order.box_closed_at)}</dd></div>` : ''}
+          ${order.return_released_at ? `<div class="detail-row"><dt>Lệnh quay về</dt><dd>${formatTime(order.return_released_at)} · ${escapeHtml(order.return_released_by || '')}</dd></div>` : ''}
           ${order.cancel_reason ? `<div class="detail-row"><dt>Lý do huỷ</dt><dd>${escapeHtml(order.cancel_reason)}</dd></div>` : ''}
           ${order.rating ? `<div class="detail-row"><dt>Đánh giá</dt><dd>${ratingStars(order.rating)} ${escapeHtml(order.review || '')}</dd></div>` : ''}
         </dl>

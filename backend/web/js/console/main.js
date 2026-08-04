@@ -13,6 +13,7 @@ import { renderAnalytics } from './views/analytics.js';
 import { renderCatalog } from './views/catalog.js';
 import { renderCustomers } from './views/customers.js';
 import { renderSettings } from './views/settings.js';
+import { DUTY, initAccount, loadProfile, renderAccount } from './views/account.js';
 
 injectSprite();
 
@@ -24,6 +25,7 @@ const VIEWS = {
   catalog: { title: 'Sản phẩm', render: renderCatalog },
   customers: { title: 'Khách hàng', render: renderCustomers },
   settings: { title: 'Cấu hình', render: renderSettings },
+  account: { title: 'Tài khoản', render: renderAccount },
 };
 
 let currentView = 'dashboard';
@@ -105,6 +107,17 @@ function renderAlerts() {
   if (fleet && fleet.total > 0 && fleet.available === 0) {
     alerts.push({ tone: 'danger', glyph: 'alert-triangle', text: 'Không còn UAV rảnh. Đơn mới sẽ phải chờ.' });
   }
+  // UAV đã giao xong nhưng còn nằm ngoài hiện trường vì chưa ai ra lệnh quay về.
+  const waiting = state.stats?.awaiting_recall ?? [];
+  if (waiting.length) {
+    const names = waiting.map((item) => item.uav || item.order_id).join(', ');
+    alerts.push({
+      tone: 'danger', glyph: 'clock',
+      text: `${names} đã giao xong và đang đậu chờ lệnh quay về.`,
+      action: { label: 'Xử lý ngay', view: 'orders', orderId: waiting[0].order_id },
+    });
+  }
+
   const pending = state.stats?.totals.pending ?? 0;
   if (pending >= 3) {
     alerts.push({
@@ -122,8 +135,11 @@ function renderAlerts() {
 
   box.querySelectorAll('[data-alert]').forEach((button) => {
     button.onclick = () => {
-      location.hash = `#/${alerts[Number(button.dataset.alert)].action.view}`;
-      showView(alerts[Number(button.dataset.alert)].action.view);
+      const { view, orderId } = alerts[Number(button.dataset.alert)].action;
+      // Mở thẳng đơn đang cần thao tác, khỏi bắt điều phối viên đi dò trong bảng.
+      if (orderId) return openOrder(orderId);
+      location.hash = `#/${view}`;
+      showView(view);
     };
   });
 
@@ -149,13 +165,30 @@ function bindStore() {
       analytics: ['stats'],
       catalog: ['products'],
       customers: ['customers'],
-      // Chỉ vẽ lại khi chính cấu hình đổi: telemetry về mỗi 2 giây sẽ xoá sạch
-      // những gì điều phối viên đang gõ dở trong các ô nhập.
+      // Hai màn dưới đây chứa form nhập liệu, mà paint() thì ghi đè innerHTML. Nghe một
+      // topic chạy thường xuyên — telemetry về mỗi 2 giây — là ô đang gõ bị huỷ giữa
+      // chừng: gõ không vào, bôi đen tự mất, dropdown tự đóng. Chỉ vẽ lại khi chính dữ
+      // liệu của màn đó đổi, hoặc không vẽ lại gì cả.
       settings: ['settings'],
+      account: [],
     };
     if (affects[currentView]?.includes(topic)) paint();
   });
 }
+
+/** Tên và ca trực hiện trên thanh trên để cả đội biết ai đang cầm máy. */
+function renderIdentity(profile) {
+  const badge = document.getElementById('topbar-duty');
+  document.getElementById('topbar-user').textContent =
+    profile?.full_name || profile?.display_name || state.user?.display_name || '—';
+
+  const duty = DUTY[profile?.duty_status];
+  badge.classList.toggle('hidden', !duty);
+  if (!duty) return;
+  badge.className = `badge badge--${duty.tone} badge--dot`;
+  badge.textContent = duty.label;
+}
+
 
 function setConnection(online) {
   const element = document.getElementById('conn-status');
@@ -191,10 +224,12 @@ async function start(user) {
   invalidateDashboard();
   invalidateOrdersView();
   initDashboard({ openOrder });
+  initAccount({ onChange: renderIdentity });
   initNav();
   bindStore();
 
   await refreshAll();
+  renderIdentity(await loadProfile().catch(() => null));
   renderAlerts();
   initRealtime();
   showView(location.hash.replace(/^#\//, '') || 'dashboard');

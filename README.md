@@ -95,19 +95,25 @@ Internet.
 - Sổ địa chỉ lưu sẵn (Nhà, Cơ quan…) để đặt lại nhanh.
 - Thanh tiến trình 5 bước, ETA đếm ngược tính từ khoảng cách và tốc độ thực của UAV.
 - Thẻ đơn đang giao nổi trên mọi màn hình, chạm vào mở thẳng màn theo dõi.
-- Nhập PIN khi UAV đến nơi, chấm sao và nhận xét sau khi hoàn thành.
+- **Nhận hàng hai bước**: UAV hạ cánh → khách nhập PIN để **mở thùng** → lấy hàng → bấm **đóng thùng**. Sau đó UAV đậu tại chỗ chờ lệnh quay về từ console.
+- Với khách, đơn kết thúc ngay khi đóng thùng: chấm sao được luôn, không phải đợi UAV bay về kho. Chặng bay về không hiện trên bản đồ, thanh tiến trình hay nhật ký.
 - Lịch sử đơn kèm nhật ký từng mốc trạng thái.
+- **Tài khoản**: họ tên thật, tên hiển thị, giới tính, ngày sinh, email, số điện thoại.
+- **Bảo mật**: đổi mật khẩu (tự đăng xuất mọi thiết bị khác), xem và đăng xuất từ xa các thiết bị đang đăng nhập.
+- **Tuỳ chọn giao hàng**: địa chỉ mặc định, ghi chú dùng lại, bật/tắt thông báo đơn hàng.
 - Nền sáng / nền tối / theo cài đặt máy, chọn trong tab Tài khoản và được nhớ lại.
 
 ### Console điều phối
 
 - **Tổng quan** — chỉ số chính, bản đồ toàn đội bay, hàng đợi đơn cần xử lý, cảnh báo pin yếu / hết UAV rảnh / đơn tồn.
-- **Đơn hàng** — lọc theo trạng thái và nhóm, tìm kiếm, sắp xếp theo cột, phân trang, xuất CSV. Xác nhận → gán UAV (tự động hoặc chọn tay) → cho xuất phát, huỷ đơn kèm lý do, xem nhật ký đầy đủ.
+- **Đơn hàng** — lọc theo trạng thái và nhóm, tìm kiếm, sắp xếp theo cột, phân trang, xuất CSV. Xác nhận → gán UAV (tự động hoặc chọn tay) → cho xuất phát → **cho UAV quay về** sau khi khách đóng thùng. Huỷ đơn kèm lý do, xem nhật ký đầy đủ kèm mốc mở/đóng thùng.
 - **Đội UAV** — thêm/sửa/xoá UAV, đặt bảo trì, theo dõi pin và tín hiệu từng thiết bị.
 - **Thống kê** — đơn theo ngày, doanh thu, phân bổ trạng thái, sản phẩm bán chạy, thời gian giao trung bình, điểm hài lòng. Biểu đồ vẽ bằng SVG thuần, kèm bảng dữ liệu cho trình đọc màn hình.
 - **Sản phẩm** — thêm/sửa/xoá, đổi giá và khối lượng, ẩn khỏi danh mục mà không cần xoá.
 - **Khách hàng** — số đơn, tổng chi tiêu, điểm đánh giá trung bình, đơn gần nhất.
 - **Cấu hình** — toạ độ trạm xuất phát, tải trọng tối đa, ngưỡng cảnh báo pin, và đường truy cập (địa chỉ VPN/LAN + cổng) công bố cho máy khách.
+- **Tài khoản** — hồ sơ nhân viên (họ tên thật, mã nhân viên, chức danh, bộ phận), trạng thái ca trực hiện ngay trên thanh trên, đổi mật khẩu.
+- **Cảnh báo** — UAV đã giao xong mà chưa ai ra lệnh quay về sẽ hiện cảnh báo đỏ kèm nút mở thẳng đơn cần xử lý.
 
 ## Kiến trúc
 
@@ -121,11 +127,11 @@ backend/app/
   realtime.py            Quản lý kết nối WebSocket
   network.py             Dò địa chỉ IP của máy chủ, nhận diện VPN
   firewall.py            Kiểm tra tường lửa có mở cổng đang phục vụ không
-  routes/                auth · catalog · orders · fleet · admin
+  routes/                auth · profile · catalog · orders · fleet · admin
 backend/web/
   css/                   base (token dùng chung) · app · console
   js/                    api · ui · icons (sprite SVG) · theme (sáng/tối)
-  js/customer/           store · home · cart · orders · address · main
+  js/customer/           store · home · cart · orders · address · profile · main
   js/console/            store · charts · views/* · main
 uav_simulator/simulator.py
 ```
@@ -145,6 +151,10 @@ python -m pytest tests/ -v
 - Không có bước build: sửa file trong `backend/web` rồi tải lại trang là thấy ngay.
 - Mỗi UAV mô phỏng là một tiến trình riêng gọi API qua `X-API-Key`. Thay bằng UAV thật chỉ cần viết cầu nối Pymavlink/MAVSDK nói chuyện với cùng bộ endpoint `/api/simulator/*`, backend và hai giao diện không đổi.
 - Trạng thái bảo trì do điều phối viên đặt sẽ không bị telemetry của UAV ghi đè.
+- Vòng đời đơn: `PENDING → CONFIRMED → ASSIGNED → DISPATCHED → IN_FLIGHT → ARRIVED → UNLOCKED → DELIVERED → RETURNING → COMPLETED`. Hai trạng thái cuối là việc nội bộ, khách không thấy.
+- UAV đậu chờ lệnh vẫn gửi telemetry nhưng **không kèm trạng thái đơn**. Nếu gửi kèm, đúng lúc khách vừa mở thùng thì telemetry sẽ kéo đơn ngược về `ARRIVED`.
+- Lệnh cho UAV quay về được ghi nhật ký là `RETURNING` chứ không phải `DELIVERED`, nếu không khách sẽ thấy "Đã nhận hàng" hai lần liên tiếp.
+- Thêm cột vào bảng đã có dữ liệu qua `apply_migrations` trong [db.py](backend/app/db.py): `CREATE TABLE IF NOT EXISTS` không đụng tới bảng cũ, nên sửa mỗi `SCHEMA` là không đủ.
 - Phần kiểm tra tường lửa đọc rule bằng `netsh`, **không dùng `Get-NetFirewallRule`**: cmdlet đó đòi quyền Administrator và khi thiếu quyền nó trả danh sách rỗng thay vì báo lỗi, rất dễ kết luận nhầm là máy không có rule nào. Đầu ra `netsh` bị dịch theo ngôn ngữ Windows; không đọc hiểu được thì báo "không rõ" chứ không báo là thiếu rule.
 - Việc dò địa chỉ chỉ dùng thư viện chuẩn: mở UDP socket tới vài đích mẫu để hỏi hệ điều hành ra bằng card nào (không gửi gói tin nào), cộng với phân giải tên máy. Vì không đọc được tên card mạng trên mọi hệ điều hành nên VPN được nhận diện theo dải địa chỉ; WireGuard dùng dải 10.x sẽ hiện chung nhóm với mạng nội bộ.
 - Bộ mã tối ưu cho demo trong mạng LAN. Muốn dùng qua Internet cần triển khai lên tên miền có HTTPS/WSS.

@@ -11,6 +11,33 @@ class LoginRequest(BaseModel):
   expected_role: str | None = None
 
 
+class ProfilePatch(BaseModel):
+  """Hồ sơ tài khoản. Mỗi vai trò chỉ được sửa phần dành cho mình, lọc ở router."""
+
+  display_name: str | None = Field(default=None, min_length=1, max_length=60)
+  full_name: str | None = Field(default=None, max_length=80)
+  email: str | None = Field(default=None, max_length=120)
+  phone: str | None = Field(default=None, max_length=20)
+  gender: str | None = None
+  date_of_birth: str | None = Field(default=None, max_length=10)
+
+  # Chỉ dành cho điều phối viên.
+  employee_code: str | None = Field(default=None, max_length=32)
+  job_title: str | None = Field(default=None, max_length=60)
+  department: str | None = Field(default=None, max_length=80)
+  duty_status: str | None = None
+
+  # Chỉ dành cho khách hàng.
+  default_note: str | None = Field(default=None, max_length=250)
+  default_address_id: int | None = None
+  notify_orders: bool | None = None
+
+
+class PasswordChange(BaseModel):
+  current_password: str = Field(min_length=1)
+  new_password: str = Field(min_length=6, max_length=100)
+
+
 class OrderItemRequest(BaseModel):
   product_id: str
   quantity: int = Field(ge=1, le=20)

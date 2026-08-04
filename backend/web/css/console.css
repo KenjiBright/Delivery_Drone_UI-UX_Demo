@@ -278,6 +278,18 @@ th[aria-sort="ascending"] .sort-mark, th[aria-sort="descending"] .sort-mark { op
 .net-option__body strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
 .net-option__body small { display: block; color: var(--text-muted); font-size: 12px; }
 
+.duty-switch { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.duty-option {
+  min-height: 44px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.duty-option:hover { background: var(--surface-3); }
+.duty-option.is-active { border-color: var(--brand-600); background: var(--brand-50); }
+
 .net-firewall { margin-bottom: var(--sp-4); }
 .net-firewall__row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
 .net-firewall__hint { font-size: 13px; color: var(--text-muted); }

@@ -142,6 +142,89 @@
       </div>
     </div>
 
+    <div class="section-head"><h3>Thông tin cá nhân</h3></div>
+    <form class="card stack" id="profile-form">
+      <label class="field">
+        <span class="field__label">Họ và tên thật</span>
+        <input class="input" id="pf-full-name" maxlength="80" placeholder="Ví dụ: Nguyễn Văn An">
+      </label>
+      <label class="field">
+        <span class="field__label">Tên hiển thị</span>
+        <input class="input" id="pf-display-name" maxlength="60" required>
+      </label>
+      <label class="field">
+        <span class="field__label">Giới tính</span>
+        <select class="input" id="pf-gender">
+          <option value="">Không nêu</option>
+          <option value="male">Nam</option>
+          <option value="female">Nữ</option>
+          <option value="other">Khác</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field__label">Ngày sinh</span>
+        <input class="input" id="pf-dob" type="date">
+      </label>
+      <label class="field">
+        <span class="field__label">Số điện thoại</span>
+        <input class="input" id="pf-phone" type="tel" maxlength="20" autocomplete="tel">
+      </label>
+      <label class="field" style="margin:0">
+        <span class="field__label">Email</span>
+        <input class="input" id="pf-email" type="email" maxlength="120" autocomplete="email">
+      </label>
+      <button class="btn btn--block" type="submit">Lưu thông tin</button>
+    </form>
+
+    <div class="section-head"><h3>Tuỳ chọn giao hàng</h3></div>
+    <form class="card stack" id="delivery-form">
+      <label class="field">
+        <span class="field__label">Địa chỉ mặc định</span>
+        <select class="input" id="pf-default-address"></select>
+        <span class="field__hint">Được chọn sẵn khi bạn đặt đơn mới.</span>
+      </label>
+      <label class="field">
+        <span class="field__label">Ghi chú giao hàng dùng lại</span>
+        <input class="input" id="pf-default-note" maxlength="250" placeholder="Ví dụ: gọi trước khi tới">
+      </label>
+      <label class="switch-row">
+        <span>
+          <strong>Thông báo đơn hàng</strong>
+          <small>Hiện thông báo khi đơn đổi trạng thái</small>
+        </span>
+        <input type="checkbox" id="pf-notify" class="switch">
+      </label>
+      <button class="btn btn--block" type="submit">Lưu tuỳ chọn</button>
+    </form>
+
+    <div class="section-head"><h3>Bảo mật</h3></div>
+    <form class="card stack" id="password-form">
+      <label class="field">
+        <span class="field__label">Mật khẩu hiện tại</span>
+        <input class="input" id="pw-current" type="password" autocomplete="current-password" required>
+      </label>
+      <label class="field">
+        <span class="field__label">Mật khẩu mới</span>
+        <input class="input" id="pw-new" type="password" minlength="6" autocomplete="new-password" required>
+        <span class="field__hint">Tối thiểu 6 ký tự. Các thiết bị khác sẽ phải đăng nhập lại.</span>
+      </label>
+      <label class="field" style="margin:0">
+        <span class="field__label">Nhập lại mật khẩu mới</span>
+        <input class="input" id="pw-confirm" type="password" autocomplete="new-password" required>
+      </label>
+      <button class="btn btn--block" type="submit">
+        <svg class="icon" width="18" height="18"><use href="#i-lock"/></svg>Đổi mật khẩu
+      </button>
+    </form>
+
+    <div class="section-head">
+      <h3>Thiết bị đăng nhập</h3>
+      <button class="btn btn--ghost btn--sm" id="btn-refresh-sessions">
+        <svg class="icon" width="16" height="16"><use href="#i-refresh"/></svg>Làm mới
+      </button>
+    </div>
+    <div id="session-list" class="stack"></div>
+
     <div class="section-head"><h3>Giao diện</h3></div>
     <div class="card theme-card">
       <div class="theme-card__row">
@@ -194,7 +277,7 @@
       <div class="eta__main">
         <svg class="icon" width="22" height="22"><use href="#i-clock"/></svg>
         <div>
-          <small>Dự kiến tới nơi</small>
+          <small id="eta-label">Dự kiến tới nơi</small>
           <strong class="tnum" id="eta-value">—</strong>
         </div>
       </div>
@@ -218,11 +301,34 @@
     </div>
 
     <div class="card pin-card hidden" id="pin-card">
-      <strong>UAV đã đến điểm giao</strong>
-      <p class="text-muted">Nhập mã PIN trong đơn để xác nhận đã nhận hàng.</p>
+      <strong>UAV đã hạ cánh</strong>
+      <p class="text-muted">Nhập mã PIN trong đơn để mở thùng hàng.</p>
       <div class="pin-row">
-        <input class="input tnum" id="pin-input" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Mã PIN nhận hàng">
-        <button class="btn" id="btn-verify">Xác nhận</button>
+        <input class="input tnum" id="pin-input" inputmode="numeric" maxlength="4" placeholder="0000" aria-label="Mã PIN mở thùng hàng">
+        <button class="btn" id="btn-verify">
+          <svg class="icon" width="18" height="18"><use href="#i-unlock"/></svg>Mở thùng
+        </button>
+      </div>
+    </div>
+
+    <div class="card box-card hidden" id="box-card">
+      <div class="box-card__head">
+        <span class="box-card__icon"><svg class="icon" width="22" height="22"><use href="#i-box-open"/></svg></span>
+        <div>
+          <strong>Thùng hàng đã mở</strong>
+          <p class="text-muted">Lấy hàng ra khỏi thùng, rồi bấm nút bên dưới để đóng thùng lại.</p>
+        </div>
+      </div>
+      <button class="btn btn--block" id="btn-close-box">
+        <svg class="icon" width="18" height="18"><use href="#i-box"/></svg>Tôi đã lấy hàng — Đóng thùng
+      </button>
+    </div>
+
+    <div class="card done-card hidden" id="done-card">
+      <span class="done-card__icon"><svg class="icon" width="26" height="26"><use href="#i-check-circle"/></svg></span>
+      <div>
+        <strong>Đã nhận hàng thành công</strong>
+        <p class="text-muted">Cảm ơn bạn đã dùng dịch vụ giao hàng bằng drone.</p>
       </div>
     </div>
 

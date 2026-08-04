@@ -2,8 +2,11 @@
 
 import { ApiError, api, clearSession, connectSocket, getToken, login } from '../api.js';
 import { injectSprite } from '../icons.js';
-import { confirmDialog, escapeHtml, formatDateTime, statusLabel, toast } from '../ui.js';
+import { confirmDialog, customerStatusLabel, escapeHtml, toast } from '../ui.js';
 import { addressIcon, openSaveAddress } from './address.js';
+import {
+  currentProfile, initProfileForms, loadProfile, renderAddressOptions, renderSessions,
+} from './profile.js';
 import { initCart, renderCart, renderDestination } from './cart.js';
 import { initHome, renderCartBadge, renderCategories, renderProducts, syncProductQuantities } from './home.js';
 import { initOrders, paintTracking, renderOrderList, renderTracking, resizeMap } from './orders.js';
@@ -82,7 +85,7 @@ async function refreshLiveOrder() {
     const order = await fetchLiveOrder();
     if (!order) return card.classList.add('hidden');
     state.trackedOrderId = order.id;
-    document.getElementById('live-order-status').textContent = statusLabel(order.status);
+    document.getElementById('live-order-status').textContent = customerStatusLabel(order.status);
     document.getElementById('live-order-id').textContent = order.id;
     card.classList.remove('hidden');
   } catch {
@@ -93,8 +96,12 @@ async function refreshLiveOrder() {
 // ---------- Tài khoản ----------
 
 function renderProfile() {
-  document.getElementById('profile-name').textContent = state.user?.display_name || '—';
-  document.getElementById('profile-phone').textContent = state.user?.phone || 'Chưa cập nhật số điện thoại';
+  const profile = currentProfile();
+  document.getElementById('profile-name').textContent =
+    profile?.full_name || profile?.display_name || state.user?.display_name || '—';
+  document.getElementById('profile-phone').textContent =
+    profile?.phone || state.user?.phone || 'Chưa cập nhật số điện thoại';
+  renderAddressOptions();
 
   const container = document.getElementById('address-list');
   if (!state.addresses.length) {
@@ -130,6 +137,23 @@ function renderProfile() {
   });
 }
 
+/** Điền sẵn điểm giao và ghi chú mặc định để khách đặt đơn nhanh hơn. */
+function applyDeliveryPreferences() {
+  const profile = currentProfile();
+  if (!profile) return;
+
+  if (!state.destination && profile.default_address_id) {
+    const saved = state.addresses.find((address) => address.id === profile.default_address_id);
+    if (saved) {
+      state.destination = { label: saved.label, address: saved.address, lat: saved.lat, lon: saved.lon };
+      renderDestination();
+    }
+  }
+
+  const note = document.getElementById('order-note');
+  if (note && !note.value && profile.default_note) note.value = profile.default_note;
+}
+
 function syncThemeSwitch(mode = getMode()) {
   document.querySelectorAll('[data-theme-mode]').forEach((button) => {
     const active = button.dataset.themeMode === mode;
@@ -148,6 +172,7 @@ function initTheme() {
 
 function initProfile() {
   initTheme();
+  initProfileForms({ onChange: renderProfile });
   document.getElementById('btn-add-address').onclick = openSaveAddress;
   document.getElementById('btn-logout').onclick = async () => {
     const confirmed = await confirmDialog('Đăng xuất', 'Bạn sẽ cần đăng nhập lại để đặt hàng.', 'Đăng xuất');
@@ -175,8 +200,11 @@ function initRealtime() {
       } else {
         refreshLiveOrder();
       }
-      if (event?.type === 'order_updated' && event.order) {
-        toast(`Đơn ${event.order.id}: ${statusLabel(event.order.status)}`);
+      // Chặng UAV bay về không đẩy thông báo cho khách: đơn của họ đã xong rồi.
+      const notify = currentProfile()?.notify_orders ?? 1;
+      if (notify && event?.type === 'order_updated' && event.order && event.order.status !== 'RETURNING'
+          && event.order.status !== 'COMPLETED') {
+        toast(`Đơn ${event.order.id}: ${customerStatusLabel(event.order.status)}`);
       }
     },
   });
@@ -227,6 +255,9 @@ async function start(user) {
   bindStore();
 
   await Promise.all([loadConfig(), loadCatalog(), loadOrders(), loadUavs(), loadAddresses()]);
+  await loadProfile().catch(() => null);
+  applyDeliveryPreferences();
+  renderSessions();
   renderCartBadge();
   renderProfile();
   renderDestination();

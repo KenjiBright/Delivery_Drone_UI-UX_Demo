@@ -3,9 +3,9 @@
 import { api } from '../api.js';
 import { icon } from '../icons.js';
 import {
-  TRACK_STEPS, createMap, distanceMeters, escapeHtml, formatDateTime, formatDuration,
-  formatMoney, formatTime, formatWeight, markerIcon, ratingStars, statusBadge, statusLabel,
-  stepIndex, toast, uavStatusBadge,
+  CUSTOMER_DONE, TRACK_STEPS, createMap, customerStatusBadge, customerStatusLabel, distanceMeters, escapeHtml,
+  formatDateTime, formatDuration, formatMoney, formatTime, formatWeight, markerIcon,
+  ratingStars, stepIndex, toast, uavStatusBadge,
 } from '../ui.js';
 import { homePoint, loadOrders, loadUavs, state, uavById } from './store.js';
 
@@ -29,6 +29,7 @@ export function initOrders({ onOpenTracking }) {
   });
 
   document.getElementById('btn-verify').addEventListener('click', verifyPin);
+  document.getElementById('btn-close-box').addEventListener('click', closeBox);
   document.getElementById('btn-rate').addEventListener('click', submitRating);
   renderStars();
 }
@@ -51,7 +52,7 @@ export function renderOrderList() {
     <button class="card order-card" data-order="${escapeHtml(order.id)}">
       <div class="order-card__top">
         <span class="order-card__id">${escapeHtml(order.id)}</span>
-        ${statusBadge(order.status)}
+        ${customerStatusBadge(order.status)}
       </div>
       <p class="order-card__addr">${escapeHtml(order.delivery_address)}</p>
       <div class="order-card__foot">
@@ -83,17 +84,22 @@ export async function renderTracking(orderId) {
 /** Vẽ lại màn theo dõi từ dữ liệu đơn; bản đồ được giữ nguyên giữa các lần cập nhật. */
 export function paintTracking(order) {
   state.trackedOrderId = order.id;
-  const uav = order.assigned_uav ? uavById(order.assigned_uav) : null;
+  const done = CUSTOMER_DONE.has(order.status);
+  // Sau khi khách đóng thùng, UAV bay về là việc nội bộ — không hiện telemetry nữa.
+  const uav = !done && order.assigned_uav ? uavById(order.assigned_uav) : null;
 
   document.getElementById('track-title').textContent = order.id;
-  document.getElementById('track-status-badge').innerHTML = statusBadge(order.status);
+  document.getElementById('track-status-badge').innerHTML = customerStatusBadge(order.status);
   renderSteps(order.status);
-  updateMap(order, uav);
+  updateMap(order, uav, done);
   renderEta(order, uav);
   renderUav(uav);
 
   document.getElementById('pin-card').classList.toggle('hidden', order.status !== 'ARRIVED');
-  const canRate = order.status === 'COMPLETED' && !order.rating;
+  document.getElementById('box-card').classList.toggle('hidden', order.status !== 'UNLOCKED');
+  document.getElementById('done-card').classList.toggle('hidden', !done);
+
+  const canRate = done && !order.rating;
   document.getElementById('rate-card').classList.toggle('hidden', !canRate);
 
   renderDetail(order);
@@ -112,7 +118,7 @@ function renderSteps(status) {
   }).join('');
 }
 
-function updateMap(order, uav) {
+function updateMap(order, uav, done = false) {
   const target = [order.delivery_lat, order.delivery_lon];
   const uavPoint = uav ? [uav.lat, uav.lon] : homePoint();
 
@@ -125,13 +131,22 @@ function updateMap(order, uav) {
       route: L.polyline([homePoint(), uavPoint, target], { color: '#2563eb', weight: 4, opacity: .85 }).addTo(map),
     };
     map.fitBounds(L.latLngBounds([homePoint(), target]), { padding: [40, 40] });
-    return;
+  } else {
+    layers.home.setLatLng(homePoint());
+    layers.target.setLatLng(target);
+    layers.uav.setLatLng(uavPoint).setIcon(markerIcon('uav', { heading: uav?.heading || 0 }));
+    layers.route.setLatLngs([homePoint(), uavPoint, target]);
   }
 
-  layers.home.setLatLng(homePoint());
-  layers.target.setLatLng(target);
-  layers.uav.setLatLng(uavPoint).setIcon(markerIcon('uav', { heading: uav?.heading || 0 }));
-  layers.route.setLatLngs([homePoint(), uavPoint, target]);
+  // Giao xong thì bản đồ chỉ còn điểm giao; UAV bay về không phải việc của khách.
+  const onMap = map.hasLayer(layers.uav);
+  if (done && onMap) {
+    layers.uav.remove();
+    layers.route.remove();
+  } else if (!done && !onMap) {
+    layers.uav.addTo(map);
+    layers.route.addTo(map);
+  }
 }
 
 export function resizeMap() {
@@ -142,10 +157,13 @@ function renderEta(order, uav) {
   const value = document.getElementById('eta-value');
   const target = [order.delivery_lat, order.delivery_lon];
 
-  if (order.status === 'COMPLETED') return void (value.textContent = 'Đã hoàn thành');
+  const finished = CUSTOMER_DONE.has(order.status) || order.status === 'CANCELLED';
+  document.getElementById('eta-label').textContent = finished ? 'Trạng thái' : 'Dự kiến tới nơi';
+
+  if (CUSTOMER_DONE.has(order.status)) return void (value.textContent = 'Đã nhận hàng');
   if (order.status === 'CANCELLED') return void (value.textContent = 'Đơn đã huỷ');
   if (order.status === 'ARRIVED') return void (value.textContent = 'UAV đang chờ bạn');
-  if (order.status === 'DELIVERED' || order.status === 'RETURNING') return void (value.textContent = 'Đã giao xong');
+  if (order.status === 'UNLOCKED') return void (value.textContent = 'Thùng hàng đang mở');
 
   if (uav && uav.speed > 0.5) {
     const seconds = distanceMeters([uav.lat, uav.lon], target) / uav.speed;
@@ -167,8 +185,12 @@ function renderUav(uav) {
   document.getElementById('uav-speed').textContent = `${uav.speed.toFixed(1)} m/s`;
 }
 
+// Nhật ký của chặng bay về không nói lên điều gì với khách, chỉ làm rối màn hình.
+const CUSTOMER_HIDDEN_EVENTS = new Set(['RETURNING', 'COMPLETED']);
+
 function renderDetail(order) {
-  const events = order.events || [];
+  const events = (order.events || []).filter((event) => !CUSTOMER_HIDDEN_EVENTS.has(event.status));
+  const pinVisible = !CUSTOMER_DONE.has(order.status) && order.status !== 'CANCELLED';
   document.getElementById('track-detail').innerHTML = `
     <h3 style="font-size:16px;margin-bottom:var(--sp-3)">Chi tiết đơn</h3>
     <dl style="margin:0">
@@ -176,7 +198,7 @@ function renderDetail(order) {
       ${order.note ? `<div class="detail-row"><dt>Ghi chú</dt><dd>${escapeHtml(order.note)}</dd></div>` : ''}
       <div class="detail-row"><dt>Khối lượng</dt><dd>${formatWeight(order.total_weight_kg)}</dd></div>
       <div class="detail-row"><dt>Thanh toán</dt><dd>${formatMoney(order.total_price)}</dd></div>
-      <div class="detail-row"><dt>PIN nhận hàng</dt><dd class="tnum" style="color:var(--brand-700);font-weight:700">${escapeHtml(order.verification_code)}</dd></div>
+      ${pinVisible ? `<div class="detail-row"><dt>PIN mở thùng</dt><dd class="tnum" style="color:var(--brand-700);font-weight:700">${escapeHtml(order.verification_code)}</dd></div>` : ''}
       ${order.cancel_reason ? `<div class="detail-row"><dt>Lý do huỷ</dt><dd>${escapeHtml(order.cancel_reason)}</dd></div>` : ''}
       ${order.rating ? `<div class="detail-row"><dt>Đánh giá</dt><dd>${ratingStars(order.rating)}${order.review ? ` — ${escapeHtml(order.review)}` : ''}</dd></div>` : ''}
     </dl>
@@ -197,7 +219,7 @@ function renderDetail(order) {
           <div class="timeline__item">
             <span class="timeline__time">${formatTime(event.created_at)}</span>
             <div class="timeline__body">
-              <strong>${escapeHtml(statusLabel(event.status))}</strong>
+              <strong>${escapeHtml(customerStatusLabel(event.status))}</strong>
               <small>${escapeHtml(event.note || event.actor)}</small>
             </div>
           </div>`).join('')}
@@ -216,7 +238,21 @@ async function verifyPin() {
   try {
     await api.post(`/api/orders/${state.trackedOrderId}/verify`, { code });
     input.value = '';
-    toast('Đã xác nhận nhận hàng. UAV đang quay về.', 'success');
+    toast('Thùng hàng đã mở. Mời bạn lấy hàng.', 'success');
+    await renderTracking(state.trackedOrderId);
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function closeBox() {
+  const button = document.getElementById('btn-close-box');
+  button.disabled = true;
+  try {
+    await api.post(`/api/orders/${state.trackedOrderId}/close-box`, {});
+    toast('Đã đóng thùng. Cảm ơn bạn!', 'success');
     await renderTracking(state.trackedOrderId);
   } catch (error) {
     toast(error.message, 'error');

@@ -53,6 +53,7 @@
       <button class="navitem" data-view="catalog"><svg class="icon" width="19" height="19"><use href="#i-package"/></svg><span>Sản phẩm</span></button>
       <button class="navitem" data-view="customers"><svg class="icon" width="19" height="19"><use href="#i-users"/></svg><span>Khách hàng</span></button>
       <button class="navitem" data-view="settings"><svg class="icon" width="19" height="19"><use href="#i-settings"/></svg><span>Cấu hình</span></button>
+      <button class="navitem" data-view="account"><svg class="icon" width="19" height="19"><use href="#i-id-card"/></svg><span>Tài khoản</span></button>
     </nav>
     <button class="navitem navitem--danger" id="btn-logout"><svg class="icon" width="19" height="19"><use href="#i-logout"/></svg><span>Đăng xuất</span></button>
   </aside>
@@ -67,6 +68,7 @@
       <div class="topbar__spacer"></div>
       <span class="conn" id="conn-status"><span class="conn__dot"></span><span id="conn-text">Đang kết nối</span></span>
       <button class="btn btn--icon" id="btn-refresh" aria-label="Làm mới dữ liệu"><svg class="icon" width="19" height="19"><use href="#i-refresh"/></svg></button>
+      <span class="duty duty--on hidden" id="topbar-duty"></span>
       <span class="topbar__user" id="topbar-user">—</span>
     </header>
 
@@ -80,6 +82,7 @@
       <section class="view hidden" id="view-catalog"></section>
       <section class="view hidden" id="view-customers"></section>
       <section class="view hidden" id="view-settings"></section>
+      <section class="view hidden" id="view-account"></section>
     </div>
   </div>
 </div>

@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .db import init_db, utc_now
 from .realtime import manager
-from .routes import admin, auth, catalog, fleet, orders
+from .routes import admin, auth, catalog, fleet, orders, profile
 from .security import SESSIONS
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -35,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(profile.router)
 app.include_router(catalog.router)
 app.include_router(orders.router)
 app.include_router(fleet.router)

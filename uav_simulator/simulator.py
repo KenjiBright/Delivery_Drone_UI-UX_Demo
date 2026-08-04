@@ -70,7 +70,7 @@ class Simulator:
     end_lat: float,
     end_lon: float,
     order_id: str,
-    order_status: str,
+    order_status: str | None,
     uav_status: str,
   ) -> None:
     heading = heading_between(start_lat, start_lon, end_lat, end_lon)
@@ -84,6 +84,38 @@ class Simulator:
       self.post_telemetry(lat, lon, altitude, speed, heading, uav_status, order_id, order_status)
       time.sleep(STEP_SECONDS)
 
+  def wait_on_site(self, order_id: str, lat: float, lon: float) -> bool:
+    """Đậu tại điểm giao cho tới khi điều phối cho phép quay về.
+
+    Trình tự: khách nhập PIN mở thùng (UNLOCKED) → khách lấy hàng xong và đóng thùng
+    (DELIVERED) → điều phối viên ra lệnh (return_released_at). UAV không tự bay về.
+    """
+    announced = ""
+    while True:
+      order = self.get_order(order_id)
+      status = order["status"]
+      if status == "DELIVERED" and order.get("return_released_at"):
+        return True
+      if status == "CANCELLED":
+        print(f"[{UAV_ID}] {order_id} bị huỷ. Bay về Home", flush=True)
+        return False
+
+      uav_status = "AWAITING_RECALL" if status == "DELIVERED" else "WAITING_CONFIRMATION"
+      if status != announced:
+        message = {
+          "ARRIVED": "Đã hạ cánh, thùng còn khoá. Chờ khách nhập PIN",
+          "UNLOCKED": "Thùng đã mở, khách đang lấy hàng",
+          "DELIVERED": "Khách đã đóng thùng. Chờ lệnh quay về từ console",
+        }.get(status, f"Trạng thái đơn: {status}")
+        print(f"[{UAV_ID}] {message}", flush=True)
+        announced = status
+
+      # Gửi telemetry với order_status = None: chỉ báo cáo vị trí và trạng thái UAV,
+      # không đụng tới trạng thái đơn. Nếu gửi kèm trạng thái cũ thì đúng lúc khách
+      # vừa mở thùng, telemetry sẽ kéo đơn ngược về ARRIVED.
+      self.post_telemetry(lat, lon, 0.0, 0.0, 0.0, uav_status, order_id, None)
+      time.sleep(2.0)
+
   def execute_mission(self, mission: dict[str, Any]) -> None:
     order_id = mission["id"]
     target_lat = float(mission["delivery_lat"])
@@ -91,13 +123,14 @@ class Simulator:
     print(f"[{UAV_ID}] Nhận nhiệm vụ {order_id}: {target_lat}, {target_lon}", flush=True)
     self.fly_leg(HOME_LAT, HOME_LON, target_lat, target_lon, order_id, "IN_FLIGHT", "DELIVERING")
     self.post_telemetry(target_lat, target_lon, 0.0, 0.0, 0.0, "WAITING_CONFIRMATION", order_id, "ARRIVED")
-    print(f"[{UAV_ID}] Đã đến. Chờ khách xác nhận PIN cho {order_id}", flush=True)
-    while True:
-      order = self.get_order(order_id)
-      if order["status"] == "DELIVERED":
-        break
-      time.sleep(2.0)
-    print(f"[{UAV_ID}] Đã giao. Bay về Home", flush=True)
+    delivered = self.wait_on_site(order_id, target_lat, target_lon)
+    if not delivered:
+      # Đơn đã huỷ: vẫn phải bay về, nhưng không được ghi đè trạng thái đơn.
+      self.fly_leg(target_lat, target_lon, HOME_LAT, HOME_LON, order_id, None, "RETURNING")
+      self.post_telemetry(HOME_LAT, HOME_LON, 0.0, 0.0, 0.0, "AVAILABLE", None, None)
+      return
+
+    print(f"[{UAV_ID}] Được phép quay về. Bay về Home", flush=True)
     self.fly_leg(target_lat, target_lon, HOME_LAT, HOME_LON, order_id, "RETURNING", "RETURNING")
     self.post_telemetry(HOME_LAT, HOME_LON, 0.0, 0.0, 0.0, "AVAILABLE", order_id, "COMPLETED")
     print(f"[{UAV_ID}] Hoàn thành {order_id}", flush=True)
