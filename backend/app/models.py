@@ -90,6 +90,9 @@ class SettingsPatch(BaseModel):
   max_payload_kg: float | None = Field(default=None, gt=0, le=50)
   low_battery_threshold: int | None = Field(default=None, ge=0, le=100)
   service_name: str | None = Field(default=None, max_length=60)
+  # Địa chỉ công bố cho máy khách. Để trống nghĩa là dùng đúng host trên trình duyệt.
+  access_host: str | None = Field(default=None, max_length=120)
+  access_port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class TelemetryRequest(BaseModel):

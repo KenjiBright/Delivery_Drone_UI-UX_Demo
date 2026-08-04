@@ -97,7 +97,7 @@ export function ratingStars(value, { size = 14 } = {}) {
     icon('star', { size, className: index <= score ? 'icon--filled' : '' })
   ).join('');
   return `<span class="rating" role="img" aria-label="${score} trên 5 sao"
-                style="display:inline-flex;gap:2px;color:#f59e0b;vertical-align:middle">${stars}</span>`;
+                style="display:inline-flex;gap:2px;color:var(--rate-star, #b45309);vertical-align:middle">${stars}</span>`;
 }
 
 // Các mốc hiển thị trên thanh tiến trình giao hàng.

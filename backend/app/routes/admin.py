@@ -7,10 +7,12 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from ..db import DB_LOCK, connect, get_settings, home_position, log_event, row_to_order, utc_now
 from ..models import AssignRequest, CancelRequest, ProductPatch, ProductRequest, SettingsPatch, UavPatch, UavRequest
+from ..firewall import check_port
+from ..network import hostname, list_addresses
 from ..realtime import manager
 from ..security import require_role
 
@@ -417,6 +419,33 @@ def delete_uav(uav_id: str) -> dict[str, bool]:
 def read_settings() -> dict[str, str]:
   with connect() as conn:
     return get_settings(conn)
+
+
+@router.get("/network")
+def network(request: Request) -> dict[str, Any]:
+  """Địa chỉ máy chủ đang có + đường truy cập đã chọn, để console dựng link cho máy khách."""
+  with connect() as conn:
+    settings = get_settings(conn)
+
+  served_port = request.url.port or (443 if request.url.scheme == "https" else 80)
+  return {
+    "hostname": hostname(),
+    "addresses": list_addresses(),
+    "served_host": request.url.hostname,
+    "served_port": served_port,
+    "access_host": settings.get("access_host", ""),
+    "access_port": settings.get("access_port", "") or str(served_port),
+  }
+
+
+@router.get("/firewall")
+def firewall(port: int = Query(ge=1, le=65535), refresh: bool = Query(default=False)) -> dict[str, Any]:
+  """Tường lửa có cho máy ngoài vào cổng này không.
+
+  Tách khỏi /network vì phải gọi netsh mất khoảng một giây, không nên bắt cả bảng
+  địa chỉ chờ theo.
+  """
+  return check_port(port, refresh=refresh)
 
 
 @router.patch("/settings")

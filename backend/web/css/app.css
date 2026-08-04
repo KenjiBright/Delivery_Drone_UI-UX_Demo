@@ -1,6 +1,10 @@
 /* Giao diện khách hàng — thiết kế mobile-first. */
 
 :root {
+  /* Khai báo tường minh, nếu không Chrome sẽ tự "làm tối hộ" trang và phá màu đã chọn.
+     Đây cũng là thứ khiến thanh cuộn và ô nhập của hệ điều hành đổi theo chủ đề. */
+  color-scheme: light;
+
   --bg: #f1f5f9;
   --surface: #ffffff;
   --surface-2: #f1f5f9;
@@ -12,8 +16,77 @@
   --ring: var(--brand-600);
   --ring-soft: rgba(37, 99, 235, .16);
 
+  /* Cả sao đã chọn lẫn sao chưa chọn đều phải đạt tối thiểu 3:1 với nền khay:
+     màu hổ phách nhạt trên nền trắng gần như không nhìn thấy. */
+  --rate-star: #b45309;
+  --rate-star-off: #64748b;
+  --rate-tray-bg: #fffbeb;
+  --rate-tray-border: #fde68a;
+
+  --promo-bg: linear-gradient(120deg, #fff7ed, #ffedd5);
+  --promo-border: #fed7aa;
+  --promo-title: #9a3412;
+  --promo-text: #c2410c;
+  --live-order-bg: #0f172a;
+
   --tabbar-h: 68px;
 }
+
+/* ---------- Nền tối ----------
+   JS quy đổi lựa chọn "theo hệ thống" thành data-theme, nên CSS chỉ cần một bản. */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0b1220;
+  --surface: #121a29;
+  --surface-2: #1a2436;
+  --surface-3: #24304a;
+  --border: #263149;
+  --text: #e8eef7;
+  --text-muted: #9aa9bd;
+  --text-subtle: #74869e;
+  --ring: #60a5fa;
+  --ring-soft: rgba(96, 165, 250, .22);
+
+  --brand-50: #172542;
+  --brand-100: #1c3050;
+  --brand-200: #2b4a7a;
+  --brand-500: #60a5fa;
+  --brand-600: #3b82f6;
+  --brand-700: #93c5fd;
+
+  --ok-500: #4ade80;
+  --ok-bg: #10331f;
+  --warn-500: #fbbf24;
+  --warn-bg: #3a2a10;
+  --danger-500: #f87171;
+  --danger-bg: #3d1a1a;
+
+  --rate-star: #fbbf24;
+  --rate-star-off: #8195ad;
+  --rate-tray-bg: #1c2436;
+  --rate-tray-border: #33415c;
+
+  --promo-bg: linear-gradient(120deg, #24211a, #2c2113);
+  --promo-border: #3f3320;
+  --promo-title: #fcd34d;
+  --promo-text: #d6b268;
+  --live-order-bg: #1e293b;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-md: 0 4px 8px -2px rgba(0, 0, 0, .55);
+  --shadow-lg: 0 14px 28px -10px rgba(0, 0, 0, .7);
+}
+
+/* Nhãn trạng thái phải đọc được trên nền tối. */
+:root[data-theme="dark"] .badge--pending { color: #fcd34d; }
+:root[data-theme="dark"] .badge--progress { background: #1c3050; color: #93c5fd; }
+:root[data-theme="dark"] .badge--success { color: #6ee7a0; }
+:root[data-theme="dark"] .badge--danger { color: #fca5a5; }
+
+/* Ô bản đồ nền tối bớt chói khi tile chưa tải xong. */
+:root[data-theme="dark"] .leaflet-tile { filter: brightness(.85) contrast(1.05); }
 
 .text-muted { color: var(--text-muted); font-size: 14px; }
 .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -121,12 +194,12 @@
   margin-bottom: var(--sp-5);
   padding: var(--sp-4);
   border-radius: var(--r-lg);
-  background: linear-gradient(120deg, #fff7ed, #ffedd5);
-  border: 1px solid #fed7aa;
+  background: var(--promo-bg);
+  border: 1px solid var(--promo-border);
   overflow: hidden;
 }
-.promo__text strong { display: block; color: #9a3412; }
-.promo__text p { font-size: 13px; color: #c2410c; margin-top: 2px; }
+.promo__text strong { display: block; color: var(--promo-title); }
+.promo__text p { font-size: 13px; color: var(--promo-text); margin-top: 2px; }
 .promo__art { margin-left: auto; color: var(--accent-500); opacity: .35; flex: none; }
 
 .chips {
@@ -266,7 +339,8 @@
 }
 .segmented__item {
   flex: 1;
-  min-height: 38px;
+  /* 44px là vùng chạm tối thiểu trên di động; 38px trước đây hơi khó bấm. */
+  min-height: 44px;
   border: 0;
   border-radius: var(--r-sm);
   background: none;
@@ -350,16 +424,52 @@
 .pin-row .input { flex: 1; letter-spacing: .4em; text-align: center; font-size: 20px; font-weight: 700; }
 .pin-row .btn { flex: none; }
 
-.stars { display: flex; gap: var(--sp-2); }
+.rate-card__head { text-align: center; }
+.rate-card__head strong { font-size: 16px; }
+.rate-card__head .text-muted { margin-top: 2px; }
+
+/* Khay chấm sao: nền riêng để sao chưa chọn vẫn nổi trên thẻ trắng. */
+.rate-tray {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-4) var(--sp-3);
+  border-radius: var(--r-lg);
+  background: var(--rate-tray-bg);
+  border: 1px solid var(--rate-tray-border);
+}
+.rate-tray__label { font-size: 14px; font-weight: 600; color: var(--text-muted); }
+.rate-tray__label.is-chosen { color: var(--rate-star); }
+
+.stars { display: flex; justify-content: center; gap: var(--sp-2); }
 .star {
-  width: 44px; height: 44px;
+  width: 46px; height: 46px;
   display: grid; place-items: center;
   border: 0; background: none;
-  color: var(--surface-3);
+  /* Sao chưa chọn dùng nét viền đủ tương phản, không phải mảng màu nhạt như trước. */
+  color: var(--rate-star-off);
   transition: transform var(--dur) var(--ease), color var(--dur);
 }
-.star.is-on { color: #f59e0b; }
+.star.is-on { color: var(--rate-star); }
+.star:hover { color: var(--rate-star); }
 .star:active { transform: scale(.9); }
+
+/* ---------- Chọn giao diện sáng/tối ---------- */
+
+.theme-card { display: flex; flex-direction: column; gap: var(--sp-3); }
+.theme-card__row { display: flex; align-items: center; gap: var(--sp-3); }
+.theme-card__icon {
+  display: grid; place-items: center;
+  width: 40px; height: 40px; flex: none;
+  border-radius: var(--r-md);
+  background: var(--brand-50); color: var(--brand-600);
+}
+.theme-card__text { flex: 1; min-width: 0; }
+.theme-card__text strong { display: block; font-size: 15px; }
+.theme-card__text small { color: var(--text-muted); font-size: 13px; }
+.theme-card .segmented { margin-bottom: 0; }
+.theme-card .segmented__item { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 
 .timeline { display: flex; flex-direction: column; gap: var(--sp-3); }
 .timeline__item { display: flex; gap: var(--sp-3); font-size: 14px; }
@@ -411,7 +521,7 @@
   padding: var(--sp-3) var(--sp-4);
   border: 0;
   border-radius: var(--r-md);
-  background: var(--text);
+  background: var(--live-order-bg);
   color: #fff;
   text-align: left;
   box-shadow: var(--shadow-lg);

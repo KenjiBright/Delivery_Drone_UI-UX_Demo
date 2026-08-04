@@ -147,6 +147,9 @@ DEFAULT_SETTINGS = {
   "max_payload_kg": "2.5",
   "low_battery_threshold": "30",
   "service_name": "UAV Delivery",
+  # Đường truy cập công bố cho máy khách. Trống = dùng đúng host trình duyệt đang mở.
+  "access_host": "",
+  "access_port": "",
 }
 
 
@@ -200,7 +203,9 @@ def row_to_order(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def new_order_id() -> str:
-  return f"OD{datetime.now().strftime('%y%m%d%H%M%S')}{secrets.randbelow(90) + 10}"
+  # Bốn chữ số ngẫu nhiên chứ không phải hai: phần thời gian chỉ tới giây, mà hai chữ
+  # số chỉ cho 90 khả năng nên hai đơn đặt trong cùng một giây đã đủ đụng khoá chính.
+  return f"OD{datetime.now().strftime('%y%m%d%H%M%S')}{secrets.randbelow(9000) + 1000}"
 
 
 def log_event(conn: sqlite3.Connection, order_id: str, status: str, actor: str, note: str = "") -> None:

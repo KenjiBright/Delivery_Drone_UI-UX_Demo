@@ -242,6 +242,149 @@ def test_web_pages_are_served(client: TestClient) -> None:
   for asset in (
     "/static/css/base.css", "/static/css/app.css", "/static/css/console.css",
     "/static/js/api.js", "/static/js/ui.js", "/static/js/icons.js",
-    "/static/js/customer/main.js", "/static/js/console/main.js",
+    "/static/js/customer/main.js", "/static/js/console/main.js", "/static/js/theme.js",
   ):
     assert client.get(asset).status_code == 200, asset
+
+
+def test_network_lists_addresses(client: TestClient) -> None:
+  """Console cần biết máy chủ có những địa chỉ nào để công bố cho máy khách."""
+  operator = auth(client, "operator", "dieuphoi123", "operator")
+  data = client.get("/api/admin/network", headers=operator).json()
+
+  assert data["hostname"]
+  assert data["access_port"], "phải rơi về cổng đang phục vụ khi chưa cấu hình"
+  for entry in data["addresses"]:
+    assert entry["kind"] in {"vpn", "lan", "public"}
+    assert not entry["address"].startswith("127."), "địa chỉ loopback không dùng cho máy khách"
+
+
+def test_access_settings_round_trip(client: TestClient) -> None:
+  operator = auth(client, "operator", "dieuphoi123", "operator")
+  saved = client.patch(
+    "/api/admin/settings",
+    json={"access_host": "100.101.102.103", "access_port": 9100},
+    headers=operator,
+  ).json()
+  assert saved["access_host"] == "100.101.102.103"
+  assert saved["access_port"] == "9100"
+
+  network = client.get("/api/admin/network", headers=operator).json()
+  assert network["access_host"] == "100.101.102.103"
+  assert network["access_port"] == "9100"
+
+
+def test_customer_cannot_read_network(client: TestClient) -> None:
+  customer = auth(client, "customer", "khachhang123", "customer")
+  assert client.get("/api/admin/network", headers=customer).status_code == 403
+  assert client.get("/api/admin/firewall?port=8000", headers=customer).status_code == 403
+
+
+def test_firewall_endpoint_shape(client: TestClient) -> None:
+  operator = auth(client, "operator", "dieuphoi123", "operator")
+  data = client.get("/api/admin/firewall?port=8000", headers=operator).json()
+
+  assert data["state"] in {"allowed", "missing", "unknown"}
+  assert data["port"] == 8000
+  assert "8000" in data["command"], "lệnh gợi ý phải mở đúng cổng đang hỏi"
+  assert "100.64.0.0/10" in data["command"], "phải phủ dải Tailscale"
+  assert isinstance(data["rules"], list)
+
+  assert client.get("/api/admin/firewall?port=0", headers=operator).status_code == 422
+
+
+# ---------- Bộ tách kết quả netsh ----------
+
+# Trích từ đầu ra thật của `netsh advfirewall firewall show rule name=all dir=in verbose`.
+NETSH_SAMPLE = """
+Rule Name:                            UAV UI
+----------------------------------------------------------------------
+Enabled:                              Yes
+Direction:                            In
+Profiles:                             Domain,Private,Public
+LocalIP:                              Any
+RemoteIP:                             Any
+Protocol:                             TCP
+LocalPort:                            8000
+RemotePort:                           Any
+Action:                               Allow
+
+Rule Name:                            Chi cho mot may LAN
+----------------------------------------------------------------------
+Enabled:                              Yes
+Direction:                            In
+Profiles:                             Private
+LocalIP:                              Any
+RemoteIP:                             203.0.113.5/32
+Protocol:                             TCP
+LocalPort:                            9000
+RemotePort:                           Any
+Action:                               Allow
+
+Rule Name:                            Da tat
+----------------------------------------------------------------------
+Enabled:                              No
+Direction:                            In
+Profiles:                             Private
+RemoteIP:                             Any
+Protocol:                             TCP
+LocalPort:                            7000
+Action:                               Allow
+"""
+
+# Windows tiếng Việt dịch cả nhãn lẫn giá trị nên không tài nào đọc hiểu được.
+NETSH_LOCALIZED = """
+Tên Quy tắc:                          UAV UI
+----------------------------------------------------------------------
+Đã bật:                               Có
+Hành động:                            Cho phép
+"""
+
+
+def parse(text: str, port: int, monkeypatch, program: str = r"C:\python\python.exe") -> dict:
+  from app import firewall
+  firewall._cache.clear()
+  monkeypatch.setattr(firewall.sys, "platform", "win32")
+  monkeypatch.setattr(firewall.sys, "executable", program)
+  monkeypatch.setattr(firewall, "_run_netsh", lambda: text)
+  return firewall.check_port(port)
+
+
+def test_netsh_parser_finds_matching_port(monkeypatch) -> None:
+  result = parse(NETSH_SAMPLE, 8000, monkeypatch)
+  assert result["state"] == "allowed"
+  assert result["rules"] == ["UAV UI (Domain,Private,Public)"]
+
+
+def test_netsh_parser_reports_missing_port(monkeypatch) -> None:
+  """Cổng 7000 chỉ có rule đã tắt, còn 9000 bị giới hạn về một IP ngoài dải máy khách."""
+  assert parse(NETSH_SAMPLE, 7000, monkeypatch)["state"] == "missing"
+  assert parse(NETSH_SAMPLE, 9000, monkeypatch)["state"] == "missing"
+
+
+def test_netsh_parser_matches_program_rule(monkeypatch) -> None:
+  """Rule mở mọi cổng cho đúng file thực thi đang chạy server cũng được tính."""
+  text = NETSH_SAMPLE + """
+Rule Name:                            Python
+----------------------------------------------------------------------
+Enabled:                              Yes
+Direction:                            In
+Profiles:                             Private
+RemoteIP:                             Any
+Protocol:                             TCP
+LocalPort:                            Any
+Program:                              C:\\Python\\python.exe
+Action:                               Allow
+"""
+  assert parse(text, 7000, monkeypatch)["state"] == "allowed"
+  # Trình thông dịch khác thì rule đó không còn liên quan.
+  assert parse(text, 7000, monkeypatch, program=r"D:\khac\python.exe")["state"] == "missing"
+
+
+def test_netsh_parser_gives_up_on_other_languages(monkeypatch) -> None:
+  """Không đọc hiểu được thì phải trả unknown, không được báo là thiếu rule."""
+  assert parse(NETSH_LOCALIZED, 8000, monkeypatch)["state"] == "unknown"
+
+
+def test_firewall_unknown_when_netsh_unavailable(monkeypatch) -> None:
+  assert parse(None, 8000, monkeypatch)["state"] == "unknown"

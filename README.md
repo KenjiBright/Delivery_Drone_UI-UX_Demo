@@ -29,7 +29,44 @@ Lần chạy đầu script tự cài thư viện thiếu, khởi động backend
 | App khách hàng (điện thoại) | `http://IP_MAY_TINH:8000/` |
 | Tài liệu API | `http://localhost:8000/docs` |
 
-Script tự tìm và in ra IP LAN khi khởi động.
+Script tự tìm và in ra IP LAN khi khởi động. Máy chủ lắng nghe trên mọi card mạng,
+nên địa chỉ VPN (Tailscale, WireGuard) cũng dùng được ngay mà không cần cấu hình thêm.
+
+### Chạy qua VPN thay vì phụ thuộc router
+
+Mỗi lần đổi router, IP LAN lại đổi và phải đi dò lại. Nếu máy chủ và máy khách cùng
+nằm trong một VPN thì địa chỉ đó cố định. Vào **Console → Cấu hình → Đường truy cập
+cho máy khách**: console liệt kê mọi địa chỉ máy đang có, tự nhận diện dải Tailscale
+(`100.64.0.0/10`), cho chọn địa chỉ và cổng, rồi dựng sẵn liên kết để sao chép gửi cho
+máy khách. Cũng có thể tự nhập tên miền VPN, ví dụ `may-chu.tail1234.ts.net`.
+
+Lựa chọn được lưu vào cơ sở dữ liệu. Lần sau chạy `python run_demo.py` không kèm
+`--port`, script đọc lại cổng đã lưu và in đúng liên kết đó. Đổi địa chỉ có hiệu lực
+ngay; đổi cổng thì phải khởi động lại script.
+
+### Máy khác không vào được (timeout)
+
+`ERR_CONNECTION_TIMED_OUT` nghĩa là gói tin bị **thả im lặng**, không phải bị từ chối,
+nên rất khó đoán nguyên nhân. Kiểm tra theo đúng thứ tự này:
+
+1. **Script còn chạy không.** Cửa sổ chạy `run_demo.py` phải còn mở. Kiểm tra nhanh:
+   `curl http://localhost:8000/health`.
+2. **Hai máy có thấy nhau qua VPN không.** `tailscale status` phải thấy máy kia là
+   `active` hoặc `idle`; `tailscale ping <ip-may-kia>` phải có `pong`.
+3. **Tường lửa có mở đúng cổng đang dùng không.** Đây là chỗ dễ sập nhất: rule tường
+   lửa gắn với **một số cổng cụ thể**, nên đổi cổng trong console mà quên mở rule cho
+   cổng mới thì máy ngoài lại timeout y hệt. Console tự kiểm tra và báo ngay tại mục
+   **Cấu hình → Đường truy cập**, `run_demo.py` cũng cảnh báo lúc khởi động.
+
+Nếu console báo tường lửa chưa mở, mở PowerShell bằng **quyền Administrator** rồi chạy
+lệnh mà console đưa (có nút sao chép), dạng:
+
+```bash
+New-NetFirewallRule -DisplayName "UAV Delivery Demo (8000)" -Direction Inbound -Protocol TCP -LocalPort 8000 -Action Allow -Profile Any -RemoteAddress 100.64.0.0/10,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+```
+
+Rule này chỉ nhận kết nối từ dải Tailscale và ba dải mạng riêng, không mở cổng ra
+Internet.
 
 ### Tài khoản demo
 
@@ -43,7 +80,7 @@ Script tự tìm và in ra IP LAN khi khởi động.
 | Cờ | Tác dụng |
 |---|---|
 | `--uavs 5` | Số UAV mô phỏng chạy song song (mặc định 3) |
-| `--port 9000` | Đổi cổng phục vụ |
+| `--port 9000` | Đổi cổng phục vụ. Bỏ trống thì dùng cổng đã lưu trong console, mặc định 8000 |
 | `--reset` | Xoá toàn bộ dữ liệu demo trước khi chạy |
 | `--no-browser` | Không tự mở trình duyệt |
 | `--no-simulator` | Chỉ chạy backend |
@@ -60,6 +97,7 @@ Script tự tìm và in ra IP LAN khi khởi động.
 - Thẻ đơn đang giao nổi trên mọi màn hình, chạm vào mở thẳng màn theo dõi.
 - Nhập PIN khi UAV đến nơi, chấm sao và nhận xét sau khi hoàn thành.
 - Lịch sử đơn kèm nhật ký từng mốc trạng thái.
+- Nền sáng / nền tối / theo cài đặt máy, chọn trong tab Tài khoản và được nhớ lại.
 
 ### Console điều phối
 
@@ -69,7 +107,7 @@ Script tự tìm và in ra IP LAN khi khởi động.
 - **Thống kê** — đơn theo ngày, doanh thu, phân bổ trạng thái, sản phẩm bán chạy, thời gian giao trung bình, điểm hài lòng. Biểu đồ vẽ bằng SVG thuần, kèm bảng dữ liệu cho trình đọc màn hình.
 - **Sản phẩm** — thêm/sửa/xoá, đổi giá và khối lượng, ẩn khỏi danh mục mà không cần xoá.
 - **Khách hàng** — số đơn, tổng chi tiêu, điểm đánh giá trung bình, đơn gần nhất.
-- **Cấu hình** — toạ độ trạm xuất phát, tải trọng tối đa, ngưỡng cảnh báo pin.
+- **Cấu hình** — toạ độ trạm xuất phát, tải trọng tối đa, ngưỡng cảnh báo pin, và đường truy cập (địa chỉ VPN/LAN + cổng) công bố cho máy khách.
 
 ## Kiến trúc
 
@@ -81,10 +119,12 @@ backend/app/
   security.py            Băm mật khẩu, phiên đăng nhập, phân quyền
   models.py              Schema request/response
   realtime.py            Quản lý kết nối WebSocket
+  network.py             Dò địa chỉ IP của máy chủ, nhận diện VPN
+  firewall.py            Kiểm tra tường lửa có mở cổng đang phục vụ không
   routes/                auth · catalog · orders · fleet · admin
 backend/web/
   css/                   base (token dùng chung) · app · console
-  js/                    api · ui · icons (sprite SVG)
+  js/                    api · ui · icons (sprite SVG) · theme (sáng/tối)
   js/customer/           store · home · cart · orders · address · main
   js/console/            store · charts · views/* · main
 uav_simulator/simulator.py
@@ -105,4 +145,6 @@ python -m pytest tests/ -v
 - Không có bước build: sửa file trong `backend/web` rồi tải lại trang là thấy ngay.
 - Mỗi UAV mô phỏng là một tiến trình riêng gọi API qua `X-API-Key`. Thay bằng UAV thật chỉ cần viết cầu nối Pymavlink/MAVSDK nói chuyện với cùng bộ endpoint `/api/simulator/*`, backend và hai giao diện không đổi.
 - Trạng thái bảo trì do điều phối viên đặt sẽ không bị telemetry của UAV ghi đè.
+- Phần kiểm tra tường lửa đọc rule bằng `netsh`, **không dùng `Get-NetFirewallRule`**: cmdlet đó đòi quyền Administrator và khi thiếu quyền nó trả danh sách rỗng thay vì báo lỗi, rất dễ kết luận nhầm là máy không có rule nào. Đầu ra `netsh` bị dịch theo ngôn ngữ Windows; không đọc hiểu được thì báo "không rõ" chứ không báo là thiếu rule.
+- Việc dò địa chỉ chỉ dùng thư viện chuẩn: mở UDP socket tới vài đích mẫu để hỏi hệ điều hành ra bằng card nào (không gửi gói tin nào), cộng với phân giải tên máy. Vì không đọc được tên card mạng trên mọi hệ điều hành nên VPN được nhận diện theo dải địa chỉ; WireGuard dùng dải 10.x sẽ hiện chung nhóm với mạng nội bộ.
 - Bộ mã tối ưu cho demo trong mạng LAN. Muốn dùng qua Internet cần triển khai lên tên miền có HTTPS/WSS.

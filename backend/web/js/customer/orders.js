@@ -225,13 +225,19 @@ async function verifyPin() {
   }
 }
 
+const RATING_LABELS = ['Chạm để chọn số sao', 'Rất tệ', 'Chưa hài lòng', 'Tạm ổn', 'Hài lòng', 'Rất hài lòng'];
+
 function renderStars() {
   const container = document.getElementById('rate-stars');
   container.innerHTML = [1, 2, 3, 4, 5].map((value) => `
     <button class="star ${value <= ratingValue ? 'is-on' : ''}" data-star="${value}"
             role="radio" aria-checked="${value === ratingValue}" aria-label="${value} sao">
-      ${icon('star', { size: 26, className: value <= ratingValue ? 'icon--filled' : '' })}
+      ${icon('star', { size: 28, className: value <= ratingValue ? 'icon--filled' : '' })}
     </button>`).join('');
+
+  const label = document.getElementById('rate-label');
+  label.textContent = RATING_LABELS[ratingValue];
+  label.classList.toggle('is-chosen', ratingValue > 0);
 
   container.querySelectorAll('[data-star]').forEach((button) => {
     button.onclick = () => {

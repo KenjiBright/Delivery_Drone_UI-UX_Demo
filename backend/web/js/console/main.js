@@ -149,7 +149,9 @@ function bindStore() {
       analytics: ['stats'],
       catalog: ['products'],
       customers: ['customers'],
-      settings: ['settings', 'uavs', 'products', 'stats'],
+      // Chỉ vẽ lại khi chính cấu hình đổi: telemetry về mỗi 2 giây sẽ xoá sạch
+      // những gì điều phối viên đang gõ dở trong các ô nhập.
+      settings: ['settings'],
     };
     if (affects[currentView]?.includes(topic)) paint();
   });

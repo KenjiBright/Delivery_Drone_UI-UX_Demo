@@ -11,6 +11,7 @@
   --text-subtle: #6b7c8a;
   --ring: #58a6ff;
   --ring-soft: rgba(88, 166, 255, .2);
+  --rate-star: #e3b341;
 
   --brand-50: #16283f;
   --brand-100: #16304f;
@@ -247,6 +248,53 @@ th[aria-sort="ascending"] .sort-mark, th[aria-sort="descending"] .sort-mark { op
 /* ---------- Cấu hình ---------- */
 
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--sp-4); }
+/* Bảng chọn đường truy cập cần cả chiều ngang để link không bị xuống dòng. */
+.panel--wide { grid-column: 1 / -1; }
+
+.net-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.net-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.net-option:hover { background: var(--surface-3); }
+.net-option.is-active { border-color: var(--brand-600); background: var(--brand-50); }
+.net-option__icon {
+  display: grid; place-items: center;
+  width: 34px; height: 34px; flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface); color: var(--text-muted);
+}
+.net-option.is-active .net-option__icon { color: var(--brand-600); }
+.net-option__body { flex: 1; min-width: 0; }
+.net-option__body strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
+.net-option__body small { display: block; color: var(--text-muted); font-size: 12px; }
+
+.net-firewall { margin-bottom: var(--sp-4); }
+.net-firewall__row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.net-firewall__hint { font-size: 13px; color: var(--text-muted); }
+.net-firewall__rules { margin-top: var(--sp-2); font-size: 12px; color: var(--text-subtle); }
+.net-firewall code { font-family: var(--font-mono); font-size: 12px; }
+.net-firewall .spinner { width: 13px; height: 13px; display: inline-block; vertical-align: -1px; }
+
+.net-links { display: flex; flex-direction: column; gap: var(--sp-2); }
+.net-link {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+}
+.net-link__label { flex: none; width: 130px; color: var(--text-muted); }
+.net-link__url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Thích ứng ---------- */
 

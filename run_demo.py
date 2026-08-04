@@ -14,7 +14,6 @@ import atexit
 import os
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import time
@@ -25,6 +24,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT / "backend"
+# Dùng chung phần dò địa chỉ và kiểm tra tường lửa với backend. Hai module này chỉ
+# nhập thư viện chuẩn nên không kéo theo fastapi.
+sys.path.insert(0, str(BACKEND_DIR))
 SIMULATOR_DIR = ROOT / "uav_simulator"
 DEFAULT_DB = ROOT / "data" / "uav_demo.db"
 
@@ -64,20 +66,22 @@ def ensure_dependencies(auto_install: bool) -> None:
     sys.exit("Cài xong nhưng vẫn thiếu thư viện. Hãy kiểm tra lại môi trường Python.")
 
 
-def lan_ip() -> str | None:
-  """Tìm IPv4 của máy trong mạng LAN.
+def saved_access() -> tuple[str, str]:
+  """Đọc host/cổng mà điều phối viên đã chọn trong console ở lần chạy trước.
 
-  Mở một UDP socket tới địa chỉ ngoài để hệ điều hành tự chọn card mạng mặc
-  định. Không gửi gói tin nào nên không cần Internet thật.
+  Đọc thẳng SQLite bằng thư viện chuẩn vì backend chưa khởi động ở thời điểm này.
   """
-  probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  if not DEFAULT_DB.exists():
+    return "", ""
   try:
-    probe.connect(("8.8.8.8", 80))
-    return probe.getsockname()[0]
-  except OSError:
-    return None
-  finally:
-    probe.close()
+    import sqlite3
+    with sqlite3.connect(DEFAULT_DB) as conn:
+      rows = dict(conn.execute(
+        "SELECT key, value FROM settings WHERE key IN ('access_host', 'access_port')"
+      ).fetchall())
+  except sqlite3.Error:
+    return "", ""
+  return rows.get("access_host", ""), rows.get("access_port", "")
 
 
 # ---------- Quản lý tiến trình con ----------
@@ -122,28 +126,65 @@ def wait_for_health(url: str, timeout: float = 30.0) -> bool:
 
 # ---------- In hướng dẫn ----------
 
-def print_links(port: int, ip: str | None) -> None:
+def print_links(port: int, access_host: str) -> None:
   line = "=" * 60
   print(f"\n{line}\n UAV DELIVERY DEMO\n{line}")
   print(f"PC  - Dashboard điều phối : http://localhost:{port}/operator")
   print(f"PC  - App khách hàng      : http://localhost:{port}/")
-  if ip:
-    print(f"Điện thoại cùng Wi-Fi     : http://{ip}:{port}/")
-    print(f"Dashboard qua mạng LAN    : http://{ip}:{port}/operator")
-  else:
-    print("Không tự tìm được IP LAN. Chạy ipconfig (Windows) hoặc ip addr (Linux).")
+
+  if access_host:
+    print(f"Địa chỉ đã chọn           : http://{access_host}:{port}/")
+
+  # Liệt kê mọi card mạng, không chỉ tuyến ra Internet: địa chỉ VPN phải hiện ra
+  # ngay cả khi điều phối viên chưa lưu lựa chọn nào trong console.
+  try:
+    from app.network import list_addresses
+    addresses = [item for item in list_addresses() if item["address"] != access_host]
+  except Exception:
+    addresses = []
+
+  for item in addresses:
+    nhan = {"vpn": "Qua VPN", "lan": "Cùng Wi-Fi/LAN", "public": "Địa chỉ công cộng"}.get(item["kind"], "Khác")
+    print(f"{nhan:<26}: http://{item['address']}:{port}/")
+  if not addresses and not access_host:
+    print("Không tự tìm được địa chỉ mạng. Chạy ipconfig (Windows) hoặc ip addr (Linux).")
+
   print(f"Tài liệu API (Swagger)    : http://localhost:{port}/docs")
   print(f"\nKhách hàng : customer / khachhang123")
   print(f"Điều phối  : operator / dieuphoi123")
-  print(f"\nChỉ cần mở cổng {port} trên tường lửa.")
-  print(f"Nhấn Ctrl+C để dừng toàn bộ demo.\n{line}\n")
+  print(f"\nNhấn Ctrl+C để dừng toàn bộ demo.\n{line}\n")
+
+
+def warn_if_firewall_blocks(port: int) -> None:
+  """Cảnh báo khi tường lửa chưa mở cổng đang dùng.
+
+  Máy ngoài gặp trường hợp này chỉ thấy trình duyệt quay vòng rồi timeout, không có
+  lấy một dòng lỗi nào chỉ về máy chủ — nên phải nói trước ở đây. Không chắc thì im
+  lặng, tuyệt đối không doạ người dùng đi mở tường lửa một cách vô ích.
+  """
+  try:
+    from app.firewall import check_port
+    status = check_port(port)
+  except Exception:
+    return
+  if status["state"] != "missing":
+    return
+
+  line = "!" * 60
+  print(f"\n{line}")
+  print(f"CẢNH BÁO: tường lửa chưa mở cổng {port}.")
+  print("Máy khác trong VPN hoặc LAN sẽ bị timeout mà không hiện lỗi gì.")
+  print("Mở PowerShell bằng quyền Administrator rồi chạy:\n")
+  print(f"  {status['command']}\n")
+  print(line)
 
 
 # ---------- Điểm vào ----------
 
 def main() -> None:
   parser = argparse.ArgumentParser(description="Khởi động UAV Delivery Demo (không cần Docker).")
-  parser.add_argument("--port", type=int, default=8000, help="Cổng phục vụ (mặc định 8000)")
+  parser.add_argument("--port", type=int, default=None,
+                      help="Cổng phục vụ. Bỏ trống thì dùng cổng đã lưu trong console, mặc định 8000")
   parser.add_argument("--host", default="0.0.0.0", help="Địa chỉ lắng nghe (mặc định 0.0.0.0)")
   parser.add_argument("--no-browser", action="store_true", help="Không tự mở trình duyệt")
   parser.add_argument("--no-simulator", action="store_true", help="Không chạy UAV simulator")
@@ -161,6 +202,12 @@ def main() -> None:
     print("Đã xoá dữ liệu demo cũ.")
   DEFAULT_DB.parent.mkdir(parents=True, exist_ok=True)
 
+  # Cờ dòng lệnh luôn thắng; sau đó tới lựa chọn đã lưu trong console; cuối cùng là mặc định.
+  access_host, access_port = saved_access()
+  port = args.port if args.port is not None else (int(access_port) if access_port.isdigit() else 8000)
+  if args.port is None and access_port.isdigit():
+    print(f"Dùng cổng {port} theo cấu hình đã lưu trong console.")
+
   atexit.register(shutdown)
   signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
   if hasattr(signal, "SIGTERM"):
@@ -175,11 +222,11 @@ def main() -> None:
     "PYTHONUNBUFFERED": "1",
   }
   spawn(
-    [sys.executable, "-m", "uvicorn", "app.main:app", "--host", args.host, "--port", str(args.port)],
+    [sys.executable, "-m", "uvicorn", "app.main:app", "--host", args.host, "--port", str(port)],
     BACKEND_DIR, backend_env, "backend",
   )
 
-  health_url = f"http://127.0.0.1:{args.port}/health"
+  health_url = f"http://127.0.0.1:{port}/health"
   if not wait_for_health(health_url):
     shutdown()
     sys.exit("Backend không khởi động được. Xem thông báo lỗi phía trên.")
@@ -191,7 +238,7 @@ def main() -> None:
       uav_id = f"UAV-{index:02d}"
       simulator_env = {
         **os.environ,
-        "BACKEND_URL": f"http://127.0.0.1:{args.port}",
+        "BACKEND_URL": f"http://127.0.0.1:{port}",
         "SIMULATOR_API_KEY": SIMULATOR_API_KEY,
         "UAV_ID": uav_id,
         "HOME_LAT": HOME_LAT,
@@ -202,9 +249,10 @@ def main() -> None:
       }
       spawn([sys.executable, "simulator.py"], SIMULATOR_DIR, simulator_env, uav_id)
 
-  print_links(args.port, lan_ip())
+  print_links(port, access_host)
+  warn_if_firewall_blocks(port)
   if not args.no_browser:
-    webbrowser.open(f"http://localhost:{args.port}/operator")
+    webbrowser.open(f"http://localhost:{port}/operator")
 
   # Giữ tiến trình chính sống; thoát nếu một tiến trình con chết bất thường.
   try:

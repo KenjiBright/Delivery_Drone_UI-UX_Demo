@@ -54,7 +54,9 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
+/* Đặt nền ở cả <html> để vùng nằm ngoài <body> (khi cuộn quá đà trên di động)
+   cũng đúng màu chủ đề, thay vì dựa vào việc trình duyệt lan nền từ body ra canvas. */
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
 
 body {
   margin: 0;

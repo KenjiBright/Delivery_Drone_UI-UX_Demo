@@ -11,6 +11,7 @@ import {
   fetchLiveOrder, loadAddresses, loadCatalog, loadConfig, loadOrders, loadUavs, state, subscribe,
 } from './store.js';
 import { icon } from '../icons.js';
+import { getMode, onThemeChange, setMode } from '../theme.js';
 
 injectSprite();
 
@@ -129,7 +130,24 @@ function renderProfile() {
   });
 }
 
+function syncThemeSwitch(mode = getMode()) {
+  document.querySelectorAll('[data-theme-mode]').forEach((button) => {
+    const active = button.dataset.themeMode === mode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-checked', String(active));
+  });
+}
+
+function initTheme() {
+  document.querySelectorAll('[data-theme-mode]').forEach((button) => {
+    button.onclick = () => setMode(button.dataset.themeMode);
+  });
+  onThemeChange(syncThemeSwitch);
+  syncThemeSwitch();
+}
+
 function initProfile() {
+  initTheme();
   document.getElementById('btn-add-address').onclick = openSaveAddress;
   document.getElementById('btn-logout').onclick = async () => {
     const confirmed = await confirmDialog('Đăng xuất', 'Bạn sẽ cần đăng nhập lại để đặt hàng.', 'Đăng xuất');
