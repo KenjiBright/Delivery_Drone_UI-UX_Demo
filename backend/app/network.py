@@ -87,6 +87,18 @@ def list_addresses() -> list[dict[str, Any]]:
   return sorted(found.values(), key=lambda item: (order.get(item["kind"], 3), not item["is_default"], item["address"]))
 
 
+def build_base_url(host: str, port: int | str) -> str:
+  """Ghép link truy cập cho máy khách.
+
+  Host dạng origin đầy đủ (https://x.trycloudflare.com) thì giữ nguyên và bỏ qua cổng:
+  tunnel phục vụ ở 443, gắn thêm ":8000" vào là link hỏng. Host trần thì mới ghép cổng.
+  """
+  host = (host or "").strip().rstrip("/")
+  if "://" in host:
+    return host
+  return f"http://{host}:{port}"
+
+
 def hostname() -> str:
   try:
     return socket.gethostname()

@@ -426,6 +426,56 @@ def test_access_settings_round_trip(client: TestClient) -> None:
   assert network["access_port"] == "9100"
 
 
+def test_access_host_accepts_tunnel_origin(client: TestClient) -> None:
+  """Link tunnel copy về thường kèm dấu / cuối; phải cắt về đúng origin."""
+  operator = auth(client, "operator", "dieuphoi123", "operator")
+  saved = client.patch(
+    "/api/admin/settings",
+    json={"access_host": "https://abc-def-ghi.trycloudflare.com/"},
+    headers=operator,
+  ).json()
+  assert saved["access_host"] == "https://abc-def-ghi.trycloudflare.com"
+
+  # Dán cả đường dẫn thì chỉ giữ origin, nếu không sẽ ghép ra .../operator/operator.
+  saved = client.patch(
+    "/api/admin/settings",
+    json={"access_host": "https://abc.trycloudflare.com/operator?x=1"},
+    headers=operator,
+  ).json()
+  assert saved["access_host"] == "https://abc.trycloudflare.com"
+
+  rejected = client.patch(
+    "/api/admin/settings", json={"access_host": "ftp://abc.example.com"}, headers=operator,
+  )
+  assert rejected.status_code == 422
+
+
+def test_tunnel_url_pattern_only_matches_ephemeral() -> None:
+  """Địa chỉ trycloudflare chỉ sống một phiên nên phải dọn khi khởi động lại.
+
+  Bước dọn lúc thoát không đủ: đóng cửa sổ console hay taskkill thì atexit không chạy.
+  Nhưng mẫu nhận dạng phải hẹp, không được xoá nhầm cấu hình Tailscale hay tên miền riêng.
+  """
+  import sys
+  sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+  from run_demo import TUNNEL_URL_PATTERN
+
+  assert TUNNEL_URL_PATTERN.fullmatch("https://abc-def.trycloudflare.com")
+  assert not TUNNEL_URL_PATTERN.fullmatch("100.68.116.20")
+  assert not TUNNEL_URL_PATTERN.fullmatch("may-chu.tail1234.ts.net")
+  assert not TUNNEL_URL_PATTERN.fullmatch("https://uav.example.com")
+
+
+def test_build_base_url_skips_port_for_origin() -> None:
+  """Tunnel phục vụ ở 443; ghép thêm cổng nội bộ vào là link hỏng."""
+  from app.network import build_base_url
+
+  assert build_base_url("https://abc.trycloudflare.com", 8000) == "https://abc.trycloudflare.com"
+  assert build_base_url("https://abc.trycloudflare.com/", 8000) == "https://abc.trycloudflare.com"
+  assert build_base_url("100.68.116.20", 8000) == "http://100.68.116.20:8000"
+  assert build_base_url("may-chu.ts.net", "9100") == "http://may-chu.ts.net:9100"
+
+
 # ---------- Tài khoản ----------
 
 def test_profile_read_and_update(client: TestClient) -> None:

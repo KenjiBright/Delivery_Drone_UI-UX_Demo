@@ -152,9 +152,12 @@ function renderNetwork(container) {
 
     <label class="field" style="margin-top:var(--sp-4)">
       <span class="field__label">Địa chỉ tự nhập</span>
-      <input class="input" id="net-host" placeholder="ví dụ: may-chu.tail1234.ts.net"
+      <input class="input" id="net-host" placeholder="may-chu.tail1234.ts.net hoặc https://abc.trycloudflare.com"
              value="${escapeHtml(known ? '' : selected)}" ${known ? 'disabled' : ''}>
-      <span class="field__hint">Bỏ trống thì máy khách dùng đúng địa chỉ đang gõ trên trình duyệt.</span>
+      <span class="field__hint">
+        Dán được cả link tunnel đầy đủ — khi đó phần cổng bên dưới sẽ bị bỏ qua.
+        Bỏ trống thì máy khách dùng đúng địa chỉ đang gõ trên trình duyệt.
+      </span>
     </label>
 
     <label class="field">
@@ -216,6 +219,14 @@ async function loadFirewall(container) {
   const box = container.querySelector('#net-firewall');
   const port = Number(container.querySelector('#net-port')?.value);
   if (!box || !port || port < 1 || port > 65535) return;
+
+  // Tunnel nối ra ngoài từ chính máy này nên không có kết nối đến để tường lửa chặn.
+  // Báo "chưa mở cổng 8000" lúc này là lạc đề và khiến người dùng đi sửa nhầm chỗ.
+  if (isOrigin(chosenHost(container))) {
+    box.innerHTML = `<p class="text-muted">${icon('shield', { size: 14 })}
+      Đi qua tunnel nên không phụ thuộc tường lửa hay cổng của máy chủ.</p>`;
+    return;
+  }
 
   box.innerHTML = `<p class="text-muted"><span class="spinner"></span> Đang kiểm tra tường lửa cho cổng ${port}…</p>`;
   let status;
@@ -286,10 +297,16 @@ function chosenHost(container) {
   return active.dataset.address || container.querySelector('#net-host').value.trim();
 }
 
+/** Địa chỉ dạng origin đầy đủ (link tunnel) thì không được ghép thêm cổng. */
+function isOrigin(host) {
+  return host.includes('://');
+}
+
 function renderLinks(container) {
   const host = chosenHost(container) || network.served_host || 'localhost';
   const port = container.querySelector('#net-port').value || network.served_port;
-  const base = `http://${host}:${port}`;
+  // Tunnel phục vụ ở cổng 443 chứ không phải cổng nội bộ; gắn thêm ":8000" là link hỏng.
+  const base = isOrigin(host) ? host.replace(/\/$/, '') : `http://${host}:${port}`;
   const box = container.querySelector('#net-links');
 
   box.innerHTML = [

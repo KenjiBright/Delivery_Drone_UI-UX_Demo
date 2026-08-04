@@ -44,6 +44,54 @@ Lựa chọn được lưu vào cơ sở dữ liệu. Lần sau chạy `python r
 `--port`, script đọc lại cổng đã lưu và in đúng liên kết đó. Đổi địa chỉ có hiệu lực
 ngay; đổi cổng thì phải khởi động lại script.
 
+### Cho máy ở xa vào demo mà không cần VPN
+
+Ba cách, xếp theo thứ tự nên thử:
+
+| Máy khách ở đâu | Cách dùng |
+|---|---|
+| Cùng Wi-Fi/LAN | Đã chạy sẵn — đưa link `http://IP_MAY_TINH:8000/` |
+| Khác mạng, cài được VPN | Tailscale, xem mục trên |
+| Khác mạng, **không cài gì cả** | Cloudflare Tunnel, bên dưới |
+
+```bash
+python run_demo.py --tunnel
+```
+
+Script in ra một đường link dạng `https://<ngẫu-nhiên>.trycloudflare.com`. Ai mở link đó
+cũng vào được, từ bất kỳ mạng nào, không cần VPN, không phải mở cổng trên router hay
+tường lửa — vì cloudflared mở kết nối **đi ra** từ máy chủ chứ không nhận kết nối vào.
+Địa chỉ này cũng được ghi luôn vào cấu hình để console phát đúng liên kết, và được trả
+về giá trị cũ khi bạn dừng demo.
+
+> **Đây là đường công khai ra Internet.** Xác thực trong demo này chỉ là demo: mật khẩu
+> nằm ngay trong README, token giữ trong RAM. Ai có link là vào được cả console điều
+> phối. Chỉ bật khi đang trình diễn, tắt ngay sau đó.
+
+Link đổi mới mỗi lần chạy. Muốn một tên miền cố định thì cần tài khoản Cloudflare và tên
+miền riêng: `cloudflared tunnel create` rồi `cloudflared tunnel route dns`.
+
+### Chạy trên một máy khác
+
+```bash
+git clone <repo> && cd uav_delivery_demo
+python run_demo.py
+```
+
+Script tự cài thư viện Python còn thiếu từ `requirements.txt`. Nếu dùng `--tunnel` mà
+máy chưa có `cloudflared`, script sẽ **hỏi** rồi tải bản chính thức về thư mục `tools/`
+(đã nằm trong `.gitignore`) — thêm `--yes` để khỏi hỏi khi chạy tự động. Từ chối tải thì
+demo vẫn chạy bình thường, chỉ không có đường công khai.
+
+Muốn tự cài thay vì để script tải:
+
+```bash
+winget install --id Cloudflare.cloudflared   # Windows
+brew install cloudflared                     # macOS
+```
+
+Trên Linux xem <https://pkg.cloudflare.com/>. Script luôn ưu tiên bản có sẵn trong `PATH`.
+
 ### Máy khác không vào được (timeout)
 
 `ERR_CONNECTION_TIMED_OUT` nghĩa là gói tin bị **thả im lặng**, không phải bị từ chối,
@@ -79,6 +127,8 @@ Internet.
 
 | Cờ | Tác dụng |
 |---|---|
+| `--tunnel` | Mở đường truy cập công khai qua Cloudflare Tunnel |
+| `--yes` | Tự đồng ý tải `cloudflared` nếu máy chưa có |
 | `--uavs 5` | Số UAV mô phỏng chạy song song (mặc định 3) |
 | `--port 9000` | Đổi cổng phục vụ. Bỏ trống thì dùng cổng đã lưu trong console, mặc định 8000 |
 | `--reset` | Xoá toàn bộ dữ liệu demo trước khi chạy |
@@ -127,6 +177,7 @@ backend/app/
   realtime.py            Quản lý kết nối WebSocket
   network.py             Dò địa chỉ IP của máy chủ, nhận diện VPN
   firewall.py            Kiểm tra tường lửa có mở cổng đang phục vụ không
+  tunnel.py              Tìm/tải cloudflared cho đường truy cập công khai
   routes/                auth · profile · catalog · orders · fleet · admin
 backend/web/
   css/                   base (token dùng chung) · app · console

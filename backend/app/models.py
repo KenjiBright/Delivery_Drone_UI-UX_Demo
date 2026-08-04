@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -120,6 +120,28 @@ class SettingsPatch(BaseModel):
   # Địa chỉ công bố cho máy khách. Để trống nghĩa là dùng đúng host trên trình duyệt.
   access_host: str | None = Field(default=None, max_length=120)
   access_port: int | None = Field(default=None, ge=1, le=65535)
+
+  @field_validator("access_host")
+  @classmethod
+  def clean_access_host(cls, value: str | None) -> str | None:
+    """Nhận cả IP trần lẫn origin đầy đủ dạng https://x.trycloudflare.com.
+
+    Link tunnel người dùng copy về thường kèm dấu / cuối hoặc cả đường dẫn; giữ nguyên
+    thì lúc ghép link sẽ ra https://x.trycloudflare.com//operator. Chỉ giữ lại origin.
+    """
+    if value is None:
+      return None
+    value = value.strip().rstrip("/")
+    if "://" not in value:
+      return value
+
+    scheme, _, rest = value.partition("://")
+    if scheme.lower() not in {"http", "https"}:
+      raise ValueError("Địa chỉ chỉ hỗ trợ http hoặc https")
+    origin = rest.split("/")[0].split("?")[0]
+    if not origin:
+      raise ValueError("Địa chỉ thiếu tên miền")
+    return f"{scheme.lower()}://{origin}"
 
 
 class TelemetryRequest(BaseModel):

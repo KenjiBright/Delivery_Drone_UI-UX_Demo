@@ -12,10 +12,13 @@ from __future__ import annotations
 import argparse
 import atexit
 import os
+import re
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -35,6 +38,8 @@ HOME_LAT = "21.0278"
 HOME_LON = "105.8342"
 
 processes: list[subprocess.Popen] = []
+# Địa chỉ công bố trước khi tunnel ghi đè, để trả lại nguyên trạng lúc thoát.
+previous_access_host: str | None = None
 
 
 # ---------- Chuẩn bị môi trường ----------
@@ -66,6 +71,21 @@ def ensure_dependencies(auto_install: bool) -> None:
     sys.exit("Cài xong nhưng vẫn thiếu thư viện. Hãy kiểm tra lại môi trường Python.")
 
 
+def write_access_host(value: str) -> None:
+  """Ghi địa chỉ công bố thẳng vào SQLite.
+
+  Backend đã chạy rồi nhưng gọi `PATCH /api/admin/settings` thì phải nhúng mật khẩu điều
+  phối vào launcher — không đáng, trong khi đọc/ghi bảng settings ở đây vốn đã làm sẵn.
+  """
+  if not DEFAULT_DB.exists():
+    return
+  try:
+    with sqlite3.connect(DEFAULT_DB) as conn:
+      conn.execute("UPDATE settings SET value = ? WHERE key = 'access_host'", (value,))
+  except sqlite3.Error:
+    pass
+
+
 def saved_access() -> tuple[str, str]:
   """Đọc host/cổng mà điều phối viên đã chọn trong console ở lần chạy trước.
 
@@ -94,6 +114,13 @@ def spawn(command: list[str], cwd: Path, env: dict[str, str], label: str) -> sub
 
 
 def shutdown() -> None:
+  # URL tunnel đổi mới mỗi lần chạy. Để nguyên trong cấu hình thì lần sau console phát ra
+  # một liên kết đã chết mà không ai hiểu vì sao, nên phải trả lại giá trị cũ.
+  global previous_access_host
+  if previous_access_host is not None:
+    write_access_host(previous_access_host)
+    previous_access_host = None
+
   for process in processes:
     if process.poll() is None:
       process.terminate()
@@ -124,16 +151,111 @@ def wait_for_health(url: str, timeout: float = 30.0) -> bool:
   return False
 
 
+# ---------- Đường truy cập công khai ----------
+
+TUNNEL_URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+
+
+def ensure_cloudflared(assume_yes: bool) -> str | None:
+  """Tìm cloudflared, chưa có thì xin phép tải. Không có cũng không sao, chỉ mất tunnel."""
+  try:
+    from app import tunnel
+  except Exception:
+    return None
+
+  found = tunnel.find_cloudflared()
+  if found:
+    return found
+
+  url = tunnel.download_url()
+  if not url:
+    print(f"Chưa hỗ trợ tự tải cloudflared cho nền tảng này.\n{tunnel.MANUAL_HINT}")
+    return None
+
+  print("\nCần cloudflared để mở đường truy cập công khai. Máy này chưa có.")
+  print(f"Tải từ trang phát hành chính thức của Cloudflare:\n  {url}")
+  if not assume_yes:
+    # Tải file thực thi về máy người khác thì phải hỏi, không bao giờ làm ngầm.
+    try:
+      answer = input("Tải về thư mục tools/ ? [y/N] ").strip().lower()
+    except EOFError:
+      answer = ""
+    if answer not in {"y", "yes"}:
+      print(f"Bỏ qua tunnel. {tunnel.MANUAL_HINT}")
+      return None
+
+  print("Đang tải cloudflared ...")
+  try:
+    path = tunnel.download_cloudflared()
+  except RuntimeError as error:
+    print(error)
+    return None
+  print(f"Đã tải xong: {path}")
+  return path
+
+
+def start_tunnel(binary: str, port: int) -> str | None:
+  """Chạy cloudflared và trả về URL công khai, hoặc None nếu không dựng được."""
+  print("Đang mở đường truy cập công khai qua Cloudflare ...")
+  process = subprocess.Popen(
+    [binary, "tunnel", "--url", f"http://127.0.0.1:{port}"],
+    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+    errors="replace",
+  )
+  processes.append(process)
+
+  found: dict[str, str] = {}
+  ready = threading.Event()
+
+  def read_output() -> None:
+    # Phải đọc tới hết stream kể cả sau khi đã tìm thấy URL: ngừng đọc thì pipe đầy và
+    # cloudflared bị chặn ghi, tunnel đang chạy sẽ đứng hình giữa chừng.
+    for line in process.stdout or []:
+      if "url" not in found:
+        match = TUNNEL_URL_PATTERN.search(line)
+        if match:
+          found["url"] = match.group(0)
+          ready.set()
+    ready.set()
+
+  threading.Thread(target=read_output, daemon=True).start()
+
+  if not ready.wait(timeout=30) or "url" not in found:
+    print("Không lấy được địa chỉ công khai sau 30 giây. Bỏ qua tunnel.")
+    return None
+  return found["url"]
+
+
+def verify_tunnel(url: str) -> bool:
+  """Cloudflare cần vài giây để tuyến sẵn sàng.
+
+  In link ra sớm quá thì người bấm vào gặp 502 rồi tưởng demo hỏng, nên xác minh bằng
+  đúng đường công cộng trước khi công bố.
+  """
+  return wait_for_health(f"{url}/health", timeout=20.0)
+
+
 # ---------- In hướng dẫn ----------
 
-def print_links(port: int, access_host: str) -> None:
+def print_links(port: int, access_host: str, tunnel_url: str = "") -> None:
   line = "=" * 60
   print(f"\n{line}\n UAV DELIVERY DEMO\n{line}")
+
+  if tunnel_url:
+    print(f"Qua Internet (tunnel)     : {tunnel_url}/")
+    print(f"  Console điều phối       : {tunnel_url}/operator")
+    print("  Ai có link này đều vào được — chỉ bật khi đang demo.")
+
   print(f"PC  - Dashboard điều phối : http://localhost:{port}/operator")
   print(f"PC  - App khách hàng      : http://localhost:{port}/")
 
-  if access_host:
-    print(f"Địa chỉ đã chọn           : http://{access_host}:{port}/")
+  if access_host and access_host != tunnel_url:
+    try:
+      from app.network import build_base_url
+      base = build_base_url(access_host, port)
+    except Exception:
+      base = f"http://{access_host}:{port}"
+    print(f"Địa chỉ đã chọn           : {base}/")
 
   # Liệt kê mọi card mạng, không chỉ tuyến ra Internet: địa chỉ VPN phải hiện ra
   # ngay cả khi điều phối viên chưa lưu lựa chọn nào trong console.
@@ -182,6 +304,8 @@ def warn_if_firewall_blocks(port: int) -> None:
 # ---------- Điểm vào ----------
 
 def main() -> None:
+  global previous_access_host
+
   parser = argparse.ArgumentParser(description="Khởi động UAV Delivery Demo (không cần Docker).")
   parser.add_argument("--port", type=int, default=None,
                       help="Cổng phục vụ. Bỏ trống thì dùng cổng đã lưu trong console, mặc định 8000")
@@ -190,6 +314,10 @@ def main() -> None:
   parser.add_argument("--no-simulator", action="store_true", help="Không chạy UAV simulator")
   parser.add_argument("--uavs", type=int, default=3, choices=range(1, 10), metavar="1-9",
                       help="Số UAV mô phỏng chạy song song (mặc định 3)")
+  parser.add_argument("--tunnel", action="store_true",
+                      help="Mở đường truy cập công khai qua Cloudflare Tunnel (máy nào có link cũng vào được)")
+  parser.add_argument("--yes", action="store_true",
+                      help="Tự đồng ý tải cloudflared nếu máy chưa có, không hỏi lại")
   parser.add_argument("--no-install", action="store_true", help="Không tự cài thư viện còn thiếu")
   parser.add_argument("--reset", action="store_true", help="Xoá dữ liệu cũ trước khi chạy")
   args = parser.parse_args()
@@ -204,6 +332,14 @@ def main() -> None:
 
   # Cờ dòng lệnh luôn thắng; sau đó tới lựa chọn đã lưu trong console; cuối cùng là mặc định.
   access_host, access_port = saved_access()
+
+  # Địa chỉ trycloudflare.com chỉ sống trong một phiên chạy. Dọn ở đây chứ không chỉ
+  # trông vào bước dọn lúc thoát: đóng cửa sổ console hay taskkill thì atexit không chạy,
+  # và lần sau console sẽ phát ra một liên kết đã chết mà không ai hiểu vì sao.
+  if access_host and TUNNEL_URL_PATTERN.fullmatch(access_host):
+    print("Xoá địa chỉ tunnel của lần chạy trước (mỗi lần chạy được cấp địa chỉ mới).")
+    write_access_host("")
+    access_host = ""
   port = args.port if args.port is not None else (int(access_port) if access_port.isdigit() else 8000)
   if args.port is None and access_port.isdigit():
     print(f"Dùng cổng {port} theo cấu hình đã lưu trong console.")
@@ -249,8 +385,24 @@ def main() -> None:
       }
       spawn([sys.executable, "simulator.py"], SIMULATOR_DIR, simulator_env, uav_id)
 
-  print_links(port, access_host)
-  warn_if_firewall_blocks(port)
+  tunnel_url = ""
+  if args.tunnel:
+    binary = ensure_cloudflared(args.yes)
+    if binary:
+      tunnel_url = start_tunnel(binary, port) or ""
+    if tunnel_url:
+      if verify_tunnel(tunnel_url):
+        print("Đường truy cập công khai đã sẵn sàng.")
+      else:
+        print("Chưa xác minh được đường công khai — hãy thử lại sau vài giây.")
+      # Console dùng địa chỉ này để phát liên kết cho máy khách.
+      previous_access_host = access_host
+      write_access_host(tunnel_url)
+
+  print_links(port, access_host, tunnel_url)
+  # Tunnel nối ra ngoài từ chính máy này nên không có kết nối đến để tường lửa chặn.
+  if not tunnel_url:
+    warn_if_firewall_blocks(port)
   if not args.no_browser:
     webbrowser.open(f"http://localhost:{port}/operator")
 
